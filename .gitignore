@@ -1,0 +1,16 @@
+# Sesión de WhatsApp (contiene tus credenciales, NUNCA la subas)
+auth_info/
+*.json
+!package.json
+!package-lock.json
+
+# Entorno
+.env
+.env.local
+
+# Dependencias
+node_modules/
+
+# Logs y SO
+*.log
+.DS_Store
