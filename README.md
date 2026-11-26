@@ -6,19 +6,81 @@ Bot propio de WhatsApp con [Baileys](https://github.com/WhiskeySockets/Baileys) 
 
 ## Qué trae
 
-- `index.js` — conexión con Baileys, QR, auto-reconexión
+- `index.js` — conexión con Baileys, QR, auto-reconexión, XP y AFK
 - `src/antispam.js` — el sistema antispam (el corazón del bot)
-- `src/commands.js` — comandos básicos
+- `src/commands.js` — router de todos los comandos
+- `src/group.js` — comandos de grupo: kick, warns, tagall, antilink
+- `src/economy.js` — monedas, daily, trabajo, apuestas, tienda (local)
+- `src/gacha.js` — gacha con 12 personajes inventados (solo texto)
+- `src/level.js` — XP por mensaje y niveles
+- `src/afk.js` — estado AFK
+- `src/store.js` — guardado local en JSON (`data/`)
 - `config.js` — todos los límites en un solo lugar, en español
 - Sesión guardada en `./auth_info` (no se sube a git)
 
 ## Comandos
+
+Todos con prefijo `!` y pasando por el antispam. Sin APIs externas.
+
+### 💰 Economía (monedas de juego, sin dinero real)
+
+| Comando | Qué hace |
+|---|---|
+| `!balance` | Tus monedas |
+| `!daily` | Monedas diarias (1 vez al día, 50–150) |
+| `!work` | Trabajar (cada 10 min, 10–40) |
+| `!coinflip cara\|cruz <apuesta>` | Volado (apuesta 10–500) |
+| `!slot <apuesta>` | Tragamonedas: triple x5, par x2 |
+| `!givecoins @usuario <cantidad>` | Regalar monedas (máx 1000) |
+| `!shop` | Tienda de coleccionables |
+| `!buy <id>` | Comprar un artículo |
+| `!inventory` | Tu inventario |
+| `!top` | Top 5 de monedas |
+
+### 🎲 Gacha (local, solo texto, 12 personajes inventados)
+
+| Comando | Qué hace |
+|---|---|
+| `!rollwaifu` | Tira un personaje al azar (cada 10 min) |
+| `!claim` | Reclamar tu último roll |
+| `!harem` | Tus personajes reclamados |
+| `!charinfo <nombre>` | Info de un personaje |
+
+Rarezas: común 60%, rara 25%, épica 12%, legendaria 3%. Cada personaje solo puede tener un dueño.
+
+### 👤 Perfil y niveles
+
+| Comando | Qué hace |
+|---|---|
+| `!profile` | Tu nivel, XP, monedas y harem |
+| `!level` | Tu nivel y barra de XP |
+| `!afk <motivo>` | Marcarte ausente (cualquier mensaje tuyo lo quita) |
+
+Cada mensaje que pasa el antispam da 5–15 XP. Al subir de nivel el bot te avisa.
+
+### 👥 Grupo (solo admins del grupo)
+
+| Comando | Qué hace |
+|---|---|
+| `!kick` | Expulsar (responde, menciona o pon el número) |
+| `!promote` / `!demote` | Dar/quitar admin |
+| `!tagall` | Mencionar a todos (cooldown 60s) |
+| `!groupinfo` | Info del grupo |
+| `!warn` | Poner un aviso (3 avisos = expulsión) |
+| `!warns` | Ver avisos del grupo |
+| `!delwarn` | Quitar un aviso |
+| `!open` / `!close` | Abrir/cerrar el grupo |
+| `!link` | Link de invitación |
+| `!antilink on/off` | Borrar links de no-admins |
+
+### 🤖 Bot
 
 | Comando | Qué hace |
 |---|---|
 | `!ping` | Responde `pong 🏓` |
 | `!help` / `!menu` | Muestra el menú |
 | `!info` | Info del bot y límites antispam |
+| `!status` | Estado: uptime y stats del antispam |
 | `!antispam` | Estado del antispam (solo dueño) |
 | `!antispam reset` | Limpia las stats (solo dueño) |
 
@@ -96,16 +158,33 @@ Si el bot te mutea mucho a ti o a tus amigos, sube los números o mételos en `W
 
 ```
 whatsapp-bot/
-├── index.js            # conexión + QR + auto-reconexión
+├── index.js            # conexión + QR + auto-reconexión + XP/AFK/antilink
 ├── config.js           # configuración y límites
 ├── src/
 │   ├── antispam.js     # sistema antispam
-│   └── commands.js     # !ping, !help, !info, !antispam
+│   ├── commands.js     # router: !ping, economía, gacha, grupo...
+│   ├── group.js        # kick, warns, tagall, antilink
+│   ├── economy.js      # monedas, daily, apuestas, tienda
+│   ├── gacha.js        # roll/claim/harem (personajes locales)
+│   ├── level.js        # XP y niveles
+│   ├── afk.js          # estado AFK
+│   └── store.js        # guardado local en JSON
+├── data/
+│   ├── waifus.json         # catálogo de gacha (12 inventados, sí se sube)
+│   ├── *.example.json      # ejemplos de economy/level/warns/gacha/afk
+│   └── *.json              # datos reales (NO se suben a git)
 ├── .env.example        # ejemplo de variables
-├── .gitignore          # auth_info, node_modules, .env
+├── .gitignore          # auth_info, node_modules, .env, data/*.json
 ├── auth_info/          # sesión (se crea al escanear QR)
 └── package.json
 ```
+
+## Lo que NO tiene (a propósito)
+
+- **Sin APIs externas**: nada de descargas (YouTube, TikTok, Instagram...), nada de imágenes de anime por API, nada de NSFW. Todo es local: si algo necesitaba una API, se dejó fuera.
+- **Sin comandos de dueño peligrosos**: no hay `exec`, `eval`, `restart` ni `update` por chat. Eso es una puerta abierta a que te hackeen el bot.
+- **Sin stickers**: convertir imágenes a sticker necesita ffmpeg y es otro rollo; no está en esta versión.
+- **Sin respuestas automáticas a todo**: el bot solo contesta comandos con `!`, por diseño, para no parecer robot.
 
 ## Si algo falla
 

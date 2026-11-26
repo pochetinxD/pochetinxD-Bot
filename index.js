@@ -24,6 +24,10 @@ const qrcode = require('qrcode-terminal');
 const config = require('./config');
 const { revisarMensaje, extraerTexto, delayHumano } = require('./src/antispam');
 const { procesarComando } = require('./src/commands');
+// Módulos locales: XP, AFK y antilink (todo en data/, sin APIs).
+const nivelMod = require('./src/level');
+const afkMod = require('./src/afk');
+const { esAntilinkActivo, tieneLink } = require('./src/group');
 
 const logger = pino({ level: 'silent' }); // Baileys es muy chismoso, lo silenciamos
 
@@ -93,15 +97,22 @@ async function conectar() {
         if (isGroup && config.IGNORE_GROUPS) continue;
 
         const sender = msg.key.participant || jid;
-        const esDueno = sender.split('@')[0] === config.OWNER_NUMBER;
+        const numeroSender = sender.split('@')[0].split(':')[0];
+        const esDueno = numeroSender === config.OWNER_NUMBER;
 
-        // ¿Es admin del grupo? (solo importa si GROUP_ONLY_ADMINS está activo)
+        // ¿Es admin del grupo? ¿Y el bot es admin?
+        // Se usa en los comandos de grupo y en el antilink.
         let isAdmin = false;
+        let isBotAdmin = false;
+        let metaGrupo = null;
         if (isGroup) {
           try {
-            const meta = await sock.groupMetadata(jid);
-            const part = meta.participants.find(p => p.id === sender);
+            metaGrupo = await sock.groupMetadata(jid);
+            const botNum = (sock.user?.id || '').split('@')[0].split(':')[0];
+            const part = metaGrupo.participants.find(p => p.id === sender);
             isAdmin = part?.admin === 'admin' || part?.admin === 'superadmin';
+            const botPart = metaGrupo.participants.find(p => (p.id || '').split('@')[0].split(':')[0] === botNum);
+            isBotAdmin = botPart?.admin === 'admin' || botPart?.admin === 'superadmin';
           } catch { /* si falla, se trata como no-admin */ }
         }
 
@@ -117,11 +128,48 @@ async function conectar() {
           continue;
         }
 
+        // 1b) ANTILINK (solo grupos): si está activado y un no-admin manda
+        // un link, se borra el mensaje y se le avisa. No se procesa nada más.
+        const textoCrudo = extraerTexto(msg);
+        if (isGroup && !esDueno && !isAdmin && esAntilinkActivo(jid) && tieneLink(textoCrudo)) {
+          try { await sock.sendMessage(jid, { delete: msg.key }); } catch { /* sin admin no se puede borrar */ }
+          await delayHumano();
+          await sock.sendMessage(jid, { text: '⚠️ En este grupo el antilink está activado, we. Nada de links.' }, { quoted: msg });
+          continue;
+        }
+
+        // 1c) XP por mensaje (sube de nivel aunque no sea comando).
+        const xp = nivelMod.agregarXp(numeroSender);
+        const extras = [];
+        if (xp.subio) extras.push(`🎉 ¡Subiste al nivel ${xp.nivel}!`);
+
+        // 1d) AFK: si el que escribe estaba AFK, ya volvió.
+        // Y si mencionó a alguien AFK, se le avisa en la respuesta.
+        if (afkMod.quitarAfk(numeroSender)) {
+          extras.push('👋 Ya volviste, ya no estás AFK.');
+        }
+        const mencionados = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
+        const afkMencionados = afkMod.revisarMenciones(mencionados);
+        if (afkMencionados.length) {
+          extras.push(afkMencionados.map(a => `😴 @${a.numero} está AFK: ${a.motivo}`).join('\n'));
+        }
+
         // 2) Solo comandos con prefijo. Lo demás se ignora a propósito:
         //    responder a TODO es lo que te marca como bot.
         const texto = extraerTexto(msg);
-        const respuesta = procesarComando(texto, { esDueno });
-        if (!respuesta) continue;
+        const respuesta = await procesarComando(texto, {
+          esDueno, isGroup, isAdmin, isBotAdmin, sender, jid, sock, msg, metaGrupo,
+        });
+
+        // Si no era comando, solo mandamos los avisos (nivel / AFK), si hay.
+        if (!respuesta) {
+          if (!extras.length) continue;
+          if (config.SHOW_TYPING) await sock.sendPresenceUpdate('composing', jid);
+          await delayHumano();
+          await sock.sendMessage(jid, { text: extras.join('\n\n') }, { quoted: msg });
+          if (config.SHOW_TYPING) await sock.sendPresenceUpdate('paused', jid);
+          continue;
+        }
 
         // 3) Delay humano + "escribiendo..." antes de responder.
         if (config.SHOW_TYPING) {
@@ -129,7 +177,14 @@ async function conectar() {
         }
         await delayHumano();
 
-        await sock.sendMessage(jid, { text: respuesta }, { quoted: msg });
+        const textoRespuesta = typeof respuesta === 'string' ? respuesta : respuesta.text;
+        const menciones = typeof respuesta === 'string' ? undefined : respuesta.mentions;
+        const textoFinal = extras.length ? `${textoRespuesta}\n\n${extras.join('\n')}` : textoRespuesta;
+        await sock.sendMessage(
+          jid,
+          menciones ? { text: textoFinal, mentions: menciones } : { text: textoFinal },
+          { quoted: msg },
+        );
         if (config.SHOW_TYPING) {
           await sock.sendPresenceUpdate('paused', jid);
         }

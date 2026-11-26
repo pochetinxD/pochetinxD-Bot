@@ -3,6 +3,10 @@ auth_info/
 *.json
 !package.json
 !package-lock.json
+# Los datos del bot (economía, niveles, avisos) NO se suben,
+# pero el catálogo de gacha y los ejemplos sí:
+!data/waifus.json
+!data/*.example.json
 
 # Entorno
 .env

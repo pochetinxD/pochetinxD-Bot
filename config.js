@@ -73,6 +73,32 @@ module.exports = {
   // Si es true, el bot ignora por completo los mensajes de grupos.
   IGNORE_GROUPS: process.env.IGNORE_GROUPS === 'true',
 
+  // ---- Economía / gacha / niveles (todo local, sin APIs) ----
+  // Monedas con las que empieza cada usuario nuevo.
+  START_COINS: parseInt(process.env.START_COINS || '100', 10),
+  // !daily: una vez cada 24h, premio entre DAILY_MIN y DAILY_MAX.
+  DAILY_COOLDOWN_MS: 24 * 60 * 60 * 1000,
+  DAILY_MIN: parseInt(process.env.DAILY_MIN || '50', 10),
+  DAILY_MAX: parseInt(process.env.DAILY_MAX || '150', 10),
+  // !work: una vez cada 10 min, pago entre WORK_MIN y WORK_MAX.
+  WORK_COOLDOWN_MS: 10 * 60 * 1000,
+  WORK_MIN: parseInt(process.env.WORK_MIN || '10', 10),
+  WORK_MAX: parseInt(process.env.WORK_MAX || '40', 10),
+  // Apuestas (!coinflip, !slot): mínimo y máximo por jugada.
+  BET_MIN: parseInt(process.env.BET_MIN || '10', 10),
+  BET_MAX: parseInt(process.env.BET_MAX || '500', 10),
+  // Máx. monedas que se pueden regalar de un jalón con !givecoins.
+  GIVE_MAX: parseInt(process.env.GIVE_MAX || '1000', 10),
+  // !rollwaifu: una tirada cada 10 min.
+  ROLL_COOLDOWN_MS: 10 * 60 * 1000,
+  // Avisos (!warn): al llegar a este número, se expulsa del grupo.
+  WARN_LIMIT: parseInt(process.env.WARN_LIMIT || '3', 10),
+  // Cooldown de !tagall por grupo (ms).
+  TAGALL_COOLDOWN_MS: 60 * 1000,
+  // XP que da cada mensaje que pasa el antispam (aleatorio entre los dos).
+  XP_MIN: parseInt(process.env.XP_MIN || '5', 10),
+  XP_MAX: parseInt(process.env.XP_MAX || '15', 10),
+
   // ---- Comportamiento humano ----
   // El bot NUNCA responde al instante: espera un tiempo aleatorio.
   // Esto es lo que más ayuda a no parecer robot.
