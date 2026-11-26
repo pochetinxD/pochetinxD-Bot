@@ -37,6 +37,21 @@ test('pairingHabilitado solo prende con USE_PAIRING_CODE', () => {
   assert.equal(pairingHabilitado(null), false);
 });
 
+test('config trae el código prendido por default (sin .env que lo apague)', () => {
+  // En un proceso hijo con las variables limpias: el default es true.
+  const { execFileSync } = require('node:child_process');
+  const path = require('node:path');
+  const env = { ...process.env };
+  delete env.USE_PAIRING_CODE;
+  delete env.PAIRING_CODE;
+  const out = execFileSync('node', ['-e', "console.log(require('./config').USE_PAIRING_CODE)"], {
+    cwd: path.join(__dirname, '..'),
+    env,
+    encoding: 'utf8',
+  });
+  assert.equal(out.trim(), 'true');
+});
+
 test('formatearCodigo agrupa de 4 en 4', () => {
   assert.equal(formatearCodigo('abcd1234'), 'ABCD-1234');
   assert.equal(formatearCodigo('ab12'), 'AB12');

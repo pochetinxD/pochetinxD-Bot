@@ -30,7 +30,7 @@ const { procesarComando } = require('./src/commands');
 const nivelMod = require('./src/level');
 const afkMod = require('./src/afk');
 const { esAntilinkActivo, tieneLink } = require('./src/group');
-const { obtenerMetaGrupo } = require('./src/groupmeta');
+const { obtenerMetaGrupo, mismaIdentidad, buscarParticipante } = require('./src/groupmeta');
 const { flushAll } = require('./src/store');
 const { pairingHabilitado, telefonoPairing, pedirCodigo } = require('./src/pairing');
 
@@ -56,7 +56,12 @@ function retrasoRecon(intento) {
 function agendarReconexion(motivo) {
   if (temporizadorRecon) return true; // ya hay uno en camino, no duplicar
   if (intentosRecon >= (config.RECONNECT_MAX_ATTEMPTS || 10)) {
-    console.log(`🛑 Ya intenté reconectar ${intentosRecon} veces (${motivo}). Me rindo: reinicia el bot a mano.`);
+    console.log(`🛑 Ya intenté reconectar ${intentosRecon} veces (${motivo}). Me rindo: salgo con error para que iniciar.bat o pm2 me relance.`);
+    try { flushAll(); } catch { /* mejor esfuerzo */ }
+    // Salir con código 1 (no 0): así el .bat / pm2 sabe que se cayó
+    // y lo vuelve a arrancar. Sin esto, el proceso se quedaba vivo
+    // sin hacer nada y nadie lo relanzaba.
+    setTimeout(() => process.exit(1), 1000);
     return false;
   }
   const espera = retrasoRecon(intentosRecon);
@@ -76,6 +81,7 @@ function agendarReconexion(motivo) {
 async function conectar() {
   let state;
   let version;
+  let saveCreds;
   try {
     ({ state, saveCreds } = await useMultiFileAuthState(config.AUTH_DIR));
     ({ version } = await fetchLatestBaileysVersion());
@@ -195,9 +201,14 @@ async function conectar() {
         const isGroup = jid.endsWith('@g.us');
         if (isGroup && config.IGNORE_GROUPS) continue;
 
-        const sender = msg.key.participant || jid;
+        // El que manda puede venir en @lid: Baileys trae el número de
+        // teléfono en msg.key.participantPn (grupos) / senderPn
+        // (privado). Si viene, se usa ese; si no, el ID tal cual.
+        const sender = msg.key.participantPn || msg.key.senderPn || msg.key.participant || jid;
         const numeroSender = sender.split('@')[0].split(':')[0];
-        const esDueno = numeroSender === config.OWNER_NUMBER;
+        // mismaIdentidad compara @lid y @s.whatsapp.net (ver groupmeta.js):
+        // si el dueño manda en @lid, igual se le reconoce.
+        const esDueno = mismaIdentidad(sender, config.OWNER_NUMBER);
 
         // Texto una sola vez (antes se extraía dos veces por mensaje).
         const textoCrudo = extraerTexto(msg);
@@ -216,10 +227,11 @@ async function conectar() {
         if (necesitaMeta) {
           try {
             metaGrupo = await obtenerMetaGrupo(sock, jid);
-            const botNum = (sock.user?.id || '').split('@')[0].split(':')[0];
-            const part = metaGrupo.participants.find(p => p.id === sender);
+            // buscarParticipante compara por id, lid, jid o phoneNumber:
+            // el admin se reconoce aunque el grupo use @lid.
+            const part = buscarParticipante(metaGrupo.participants, sender);
             isAdmin = part?.admin === 'admin' || part?.admin === 'superadmin';
-            const botPart = metaGrupo.participants.find(p => (p.id || '').split('@')[0].split(':')[0] === botNum);
+            const botPart = buscarParticipante(metaGrupo.participants, sock.user?.id);
             isBotAdmin = botPart?.admin === 'admin' || botPart?.admin === 'superadmin';
           } catch { /* si falla, se trata como no-admin */ }
         }

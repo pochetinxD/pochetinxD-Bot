@@ -6,15 +6,15 @@
     "pino": "^9.3.2",
     "qrcode-terminal": "^0.12.0"
   },
-  "description": "Bot propio de WhatsApp con Baileys + sistema antispam para no parecer spam",
+  "description": "Bot propio de WhatsApp con Baileys: antispam, comandos de grupo, economía y gacha locales, sin APIs externas",
   "license": "MIT",
   "main": "index.js",
-  "name": "musulman-bot",
+  "name": "pochetinxd-bot",
   "scripts": {
-    "check": "node --check index.js && node --check src/antispam.js && node --check src/commands.js && node --check config.js && node --check src/store.js && node --check src/group.js && node --check src/groupmeta.js && node --check src/pairing.js && node --check src/economy.js && node --check src/gacha.js && node --check src/level.js && node --check src/afk.js && node --check tests/store.test.js && node --check tests/antispam.test.js && node --check tests/group.test.js && node --check tests/commands.test.js && node --check tests/pairing.test.js && echo \"OK: sintaxis correcta\"",
+    "check": "node --check index.js && node --check src/antispam.js && node --check src/commands.js && node --check config.js && node --check src/store.js && node --check src/group.js && node --check src/groupmeta.js && node --check src/pairing.js && node --check src/economy.js && node --check src/gacha.js && node --check src/level.js && node --check src/afk.js && node --check tests/store.test.js && node --check tests/antispam.test.js && node --check tests/group.test.js && node --check tests/commands.test.js && node --check tests/pairing.test.js && node --check tests/identidad.test.js && echo \"OK: sintaxis correcta\"",
     "dev": "node --watch index.js",
     "start": "node index.js",
-    "test": "node --test tests/store.test.js tests/antispam.test.js tests/group.test.js tests/commands.test.js tests/pairing.test.js"
+    "test": "node --test tests/store.test.js tests/antispam.test.js tests/group.test.js tests/commands.test.js tests/pairing.test.js tests/identidad.test.js"
   },
   "type": "commonjs",
   "version": "1.0.0"

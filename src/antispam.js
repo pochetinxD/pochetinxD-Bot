@@ -27,6 +27,7 @@
 // ============================================
 
 const config = require('../config');
+const { mismaIdentidad } = require('./groupmeta'); // LID: comparar @lid y @s.whatsapp.net
 
 // Ventanas de tiempo
 const MIN_MS = 60 * 1000;
@@ -235,20 +236,24 @@ function revisarMensaje(msg, { isGroup = false, isAdmin = false } = {}) {
   stats.totalRevisados++;
   const t = now();
   const jid = msg.key?.remoteJid || 'desconocido';
-  const sender = msg.key?.participant || jid; // en grupos, el que manda
+  // El que manda puede venir en @lid: Baileys trae el número en
+  // participantPn (grupos) / senderPn (privado). Si viene, se usa
+  // ese; si no, el ID tal cual (mismaIdentidad resuelve el resto).
+  const sender = msg.key?.participantPn || msg.key?.senderPn || msg.key?.participant || jid;
   const texto = extraerTexto(msg);
   const numeroSender = numeroDe(sender);
 
   // ---- 1. Blocklist / allowlist / dueño ----
   // Se resuelve ANTES de crear la entrada en el Map: esta gente
   // no necesita estado y no debe ocupar memoria.
-  if (config.BLOCKLIST.includes(numeroSender)) {
+  // mismaIdentidad compara @lid y @s.whatsapp.net (ver groupmeta.js).
+  if (config.BLOCKLIST.some((n) => mismaIdentidad(sender, n))) {
     registrar('blocklist');
     logEvento('BLOQUEADO', sender, 'blocklist');
     return { allowed: false, reason: 'blocklist', action: 'ignore' };
   }
-  const esDueno = numeroSender === config.OWNER_NUMBER;
-  const esWhitelist = config.WHITELIST.includes(numeroSender);
+  const esDueno = mismaIdentidad(sender, config.OWNER_NUMBER);
+  const esWhitelist = config.WHITELIST.some((n) => mismaIdentidad(sender, n));
   if (esDueno || esWhitelist) {
     return { allowed: true, reason: 'bypass dueño/whitelist' };
   }

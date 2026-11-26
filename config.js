@@ -6,10 +6,11 @@ require('dotenv').config();
 
 module.exports = {
   // ---- Dueño / admin ----
-  // PON AQUÍ TU NÚMERO con código de país, sin + ni espacios.
-  // Ejemplo México: '5215512345678' | Ejemplo Chile: '56912345678'
-  // También se puede poner en .env como OWNER_NUMBER=521...
-  OWNER_NUMBER: process.env.OWNER_NUMBER || '5210000000000', // <-- ¡CÁMBIALO!
+  // Número del dueño con código de país, sin + ni espacios.
+  // Se puede sobreescribir en .env como OWNER_NUMBER=521...
+  // Ojo: este valor queda en el repo (público). Si lo quieres
+  // privado, ponlo solo en tu .env y deja aquí el placeholder.
+  OWNER_NUMBER: process.env.OWNER_NUMBER || '526565920359',
 
   // Números que nunca pasan por el antispam (además del dueño).
   // Formato: ['5215512345678', '56987654321']
@@ -110,11 +111,11 @@ module.exports = {
   // ---- Sesión ----
   AUTH_DIR: process.env.AUTH_DIR || './auth_info',
   // ---- Login: QR o código de emparejamiento ----
-  // Si es true, al no haber sesión se pide un código de 8 caracteres
-  // en vez del QR (útil cuando el bot lo usan otros y no todos
-  // pueden escanear). El código se mete en WhatsApp > Dispositivos
-  // vinculados > Vincular con número de teléfono.
-  USE_PAIRING_CODE: process.env.USE_PAIRING_CODE === 'true' || process.env.PAIRING_CODE === 'true',
+  // Por default se entra con CÓDIGO (sin QR): al no haber sesión
+  // se pide un código de 8 caracteres para meterlo en WhatsApp >
+  // Dispositivos vinculados > Vincular con número de teléfono.
+  // Para volver al QR, pon USE_PAIRING_CODE=false en tu .env.
+  USE_PAIRING_CODE: process.env.USE_PAIRING_CODE !== 'false' && process.env.PAIRING_CODE !== 'false',
   // Número al que va el código. Si está vacío, usa OWNER_NUMBER.
   PAIRING_PHONE: (process.env.PAIRING_PHONE || '').trim(),
   // Tiempo base entre reintentos de reconexión (ms). Se duplica en

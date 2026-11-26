@@ -19,7 +19,7 @@
 // ============================================
 
 const { load, save } = require('./store');
-const { obtenerMetaGrupo } = require('./groupmeta');
+const { obtenerMetaGrupo, mismaIdentidad, buscarParticipante } = require('./groupmeta');
 const config = require('../config');
 
 const ARCHIVO_AVISOS = 'warns.json';
@@ -56,7 +56,9 @@ async function rolEnGrupo(ctx, jid) {
     let meta = ctx.metaGrupo;
     if (!meta && ctx.sock) meta = await obtenerMetaGrupo(ctx.sock, ctx.jid);
     if (!meta) return null;
-    const part = (meta.participants || []).find(p => numeroDe(p.id) === numeroDe(jid));
+    // buscarParticipante compara por id, lid, jid o phoneNumber:
+    // el rol se reconoce aunque el grupo use @lid.
+    const part = buscarParticipante(meta.participants, jid);
     return part?.admin || null;
   } catch {
     return null;
@@ -69,7 +71,7 @@ async function estaEnGrupo(ctx, jid) {
     let meta = ctx.metaGrupo;
     if (!meta && ctx.sock) meta = await obtenerMetaGrupo(ctx.sock, ctx.jid);
     if (!meta) return null;
-    return (meta.participants || []).some(p => numeroDe(p.id) === numeroDe(jid));
+    return (meta.participants || []).some(p => mismaIdentidad(p, jid));
   } catch {
     return null;
   }
@@ -79,10 +81,9 @@ async function estaEnGrupo(ctx, jid) {
 // Devuelve un texto con el motivo, o null si no está protegido.
 // `accion` es 'kick' | 'demote' | 'warn'.
 async function protegido(ctx, objetivoJid, accion) {
-  const num = numeroDe(objetivoJid);
-  const numBot = ctx.sock?.user?.id ? numeroDe(ctx.sock.user.id) : null;
-  if (numBot && num === numBot) return 'al bot no, we';
-  if (num === config.OWNER_NUMBER) return 'al dueño no se le toca, we';
+  // mismaIdentidad: el bot / dueño se reconoce aunque venga en @lid.
+  if (ctx.sock?.user?.id && mismaIdentidad(objetivoJid, ctx.sock.user.id)) return 'al bot no, we';
+  if (mismaIdentidad(objetivoJid, config.OWNER_NUMBER)) return 'al dueño no se le toca, we';
   const rol = await rolEnGrupo(ctx, objetivoJid);
   if (rol === 'superadmin') return 'es el creador del grupo, no se le toca';
   if (accion === 'kick' && rol === 'admin' && !ctx.esDueno) {
@@ -122,9 +123,8 @@ function guardarAvisos(e) {
 // se registra el aviso y se avisa, pero no hay expulsión.
 async function advertir(ctx, objetivoJid, motivo) {
   const num = numeroDe(objetivoJid);
-  const numBot = ctx.sock?.user?.id ? numeroDe(ctx.sock.user.id) : null;
-  if (numBot && num === numBot) return 'Al bot no se le pone aviso, we.';
-  if (num === config.OWNER_NUMBER) return 'Al dueño no se le pone aviso, we.';
+  if (ctx.sock?.user?.id && mismaIdentidad(objetivoJid, ctx.sock.user.id)) return 'Al bot no se le pone aviso, we.';
+  if (mismaIdentidad(objetivoJid, config.OWNER_NUMBER)) return 'Al dueño no se le pone aviso, we.';
   const rol = await rolEnGrupo(ctx, objetivoJid);
   if (rol === 'superadmin') return 'Es el creador del grupo, no se le pone aviso.';
   const esAdminProtegido = rol === 'admin';
@@ -183,7 +183,7 @@ function quitarAviso(jidGrupo, objetivoJid) {
 
 async function expulsar(ctx, objetivoJid) {
   const num = numeroDe(objetivoJid);
-  if (num === numeroDe(ctx.sender)) return 'No te puedes expulsar a ti mismo, we.';
+  if (mismaIdentidad(objetivoJid, ctx.sender)) return 'No te puedes expulsar a ti mismo, we.';
   const motivoProtegido = await protegido(ctx, objetivoJid, 'kick');
   if (motivoProtegido) return `No puedo expulsarlo: ${motivoProtegido}.`;
   const enGrupo = await estaEnGrupo(ctx, objetivoJid);
@@ -210,9 +210,8 @@ async function promover(ctx, objetivoJid) {
 
 async function degradar(ctx, objetivoJid) {
   const num = numeroDe(objetivoJid);
-  const numBot = ctx.sock?.user?.id ? numeroDe(ctx.sock.user.id) : null;
-  if (numBot && num === numBot) return 'No me puedo quitar admin a mí mismo, we.';
-  if (num === config.OWNER_NUMBER) return 'Al dueño no se le quita nada, we.';
+  if (ctx.sock?.user?.id && mismaIdentidad(objetivoJid, ctx.sock.user.id)) return 'No me puedo quitar admin a mí mismo, we.';
+  if (mismaIdentidad(objetivoJid, config.OWNER_NUMBER)) return 'Al dueño no se le quita nada, we.';
   const rol = await rolEnGrupo(ctx, objetivoJid);
   if (rol === 'superadmin') return 'Es el creador del grupo, no se le quita nada.';
   if (rol !== 'admin') return 'Esa persona ni es admin, we.';
@@ -240,8 +239,8 @@ async function mencionarATodos(ctx) {
   try {
     let meta = ctx.metaGrupo;
     if (!meta) meta = await obtenerMetaGrupo(ctx.sock, ctx.jid);
-    const botNum = (ctx.sock.user?.id || '').split('@')[0].split(':')[0];
-    const miembros = meta.participants.filter(p => numeroDe(p.id) !== botNum);
+    // Al bot no se le menciona: se reconoce por cualquier identidad (@lid o teléfono).
+    const miembros = meta.participants.filter(p => !mismaIdentidad(p, ctx.sock.user?.id));
     ultimoTagall.set(ctx.jid, ahora);
     const texto = ['📣 *Atención a todos*', '', ...miembros.map(p => `@${numeroDe(p.id)}`)].join('\n');
     return { text: texto, mentions: miembros.map(p => p.id) };
