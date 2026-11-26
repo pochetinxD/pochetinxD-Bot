@@ -109,6 +109,27 @@ module.exports = {
 
   // ---- Sesión ----
   AUTH_DIR: process.env.AUTH_DIR || './auth_info',
-  // Tiempo entre reintentos de reconexión (ms).
-  RECONNECT_DELAY_MS: 5000,
+  // Tiempo base entre reintentos de reconexión (ms). Se duplica en
+  // cada intento (exponential backoff) hasta RECONNECT_MAX_MS.
+  RECONNECT_DELAY_MS: parseInt(process.env.RECONNECT_DELAY_MS || '5000', 10),
+  RECONNECT_BASE_MS: parseInt(process.env.RECONNECT_BASE_MS || process.env.RECONNECT_DELAY_MS || '5000', 10),
+  // Tope del backoff: nunca esperar más de 5 min entre reintentos.
+  RECONNECT_MAX_MS: parseInt(process.env.RECONNECT_MAX_MS || '300000', 10),
+  // Máx. reintentos seguidos antes de rendirse y pedir reinicio manual.
+  // Se resetea a 0 cada vez que la conexión abre bien.
+  RECONNECT_MAX_ATTEMPTS: parseInt(process.env.RECONNECT_MAX_ATTEMPTS || '10', 10),
+
+  // ---- Rendimiento: caché de metadatos de grupo ----
+  // Cuánto dura en caché el resultado de groupMetadata() (ms).
+  GROUP_META_TTL_MS: parseInt(process.env.GROUP_META_TTL_MS || '45000', 10),
+  // Máx. grupos en esa caché.
+  GROUP_META_CACHE_MAX: parseInt(process.env.GROUP_META_CACHE_MAX || '100', 10),
+
+  // ---- Antispam: memoria ----
+  // Máx. usuarios distintos guardados en memoria.
+  ANTISPAM_MAX_USERS: parseInt(process.env.ANTISPAM_MAX_USERS || '500', 10),
+  // Tiempo sin actividad tras el cual se olvida a un usuario (ms).
+  ANTISPAM_USER_TTL_MS: parseInt(process.env.ANTISPAM_USER_TTL_MS || String(30 * 60 * 1000), 10),
+  // Tiempo sin infracciones tras el cual los warns se resetean (ms).
+  ANTISPAM_WARN_DECAY_MS: parseInt(process.env.ANTISPAM_WARN_DECAY_MS || String(60 * 60 * 1000), 10),
 };

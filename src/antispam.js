@@ -12,6 +12,18 @@
 //
 // Todo es en memoria (se reinicia al apagar el bot).
 // Si quieres persistencia, aquí es donde se guardaría en un .json / DB.
+//
+// Estabilidad (auditoría 2026-11-26):
+// - El Map de usuarios ya no crece sin fin: hay tope de
+//   usuarios (ANTISPAM_MAX_USERS), TTL por inactividad
+//   (ANTISPAM_USER_TTL_MS) y los warns se resetean si el
+//   usuario no reincide (ANTISPAM_WARN_DECAY_MS). Antes los
+//   warns nunca se borraban y eso impedía borrar al usuario.
+// - El dueño / whitelist / blocklist se resuelven ANTES de
+//   crear la entrada en el Map: ya no se guarda estado de
+//   gente que nunca pasa por el filtro.
+// - Los logs ya no imprimen números completos ni el texto
+//   del mensaje: solo JID enmascarado, motivo y contadores.
 // ============================================
 
 const config = require('../config');
@@ -19,6 +31,17 @@ const config = require('../config');
 // Ventanas de tiempo
 const MIN_MS = 60 * 1000;
 const HOUR_MS = 60 * MIN_MS;
+
+// Topes de memoria (ver config.js).
+function maxUsuarios() {
+  return config.ANTISPAM_MAX_USERS || 500;
+}
+function ttlUsuarioMs() {
+  return config.ANTISPAM_USER_TTL_MS || 30 * MIN_MS;
+}
+function decayWarnsMs() {
+  return config.ANTISPAM_WARN_DECAY_MS || 60 * MIN_MS;
+}
 
 // Estado por usuario: Map<jid, estado>
 const users = new Map();
@@ -36,6 +59,21 @@ function now() {
   return Date.now();
 }
 
+// '521...:12@s.whatsapp.net' -> '521...' (quita el sufijo :lid).
+function numeroDe(jid) {
+  return (jid || '').split('@')[0].split(':')[0];
+}
+
+// Enmascara un JID para los logs: no se imprime el número completo.
+// '5215512345678@s.whatsapp.net' -> '5215****78@s.whatsapp.net'
+function mascaraJid(jid) {
+  const [num, dom] = (jid || '').split('@');
+  if (!num) return 'desconocido';
+  const n = numeroDe(jid);
+  const visible = n.length > 6 ? `${n.slice(0, 4)}****${n.slice(-2)}` : '****';
+  return dom ? `${visible}@${dom}` : visible;
+}
+
 function getUser(jid) {
   if (!users.has(jid)) {
     users.set(jid, {
@@ -49,8 +87,11 @@ function getUser(jid) {
       linkAt: [],
       // hasta cuándo está muteado (timestamp, 0 = no)
       mutedUntil: 0,
-      // advertencias acumuladas
+      // advertencias acumuladas (se resetean si no reincide)
       warns: 0,
+      // última actividad y última infracción (para limpieza)
+      lastSeen: now(),
+      lastWarnAt: 0,
     });
   }
   return users.get(jid);
@@ -61,6 +102,43 @@ function limpiarViejos(u, t) {
   u.recentTexts = u.recentTexts.filter(x => t - x.at < config.SAME_MSG_WINDOW_MS);
   u.forwardedAt = u.forwardedAt.filter(x => t - x < HOUR_MS);
   u.linkAt = u.linkAt.filter(x => t - x < 10 * MIN_MS);
+  // Topes duros por si llega una ráfaga enorme entre limpiezas.
+  if (u.timestamps.length > 100) u.timestamps = u.timestamps.slice(-100);
+  if (u.recentTexts.length > 20) u.recentTexts = u.recentTexts.slice(-20);
+  if (u.forwardedAt.length > 100) u.forwardedAt = u.forwardedAt.slice(-100);
+  if (u.linkAt.length > 100) u.linkAt = u.linkAt.slice(-100);
+}
+
+// Saca del Map a los usuarios inactivos y resetea warns viejos.
+// Si hay demasiados usuarios, se expulsan los de actividad más vieja.
+function purgarUsuarios(t = now()) {
+  for (const [jid, u] of users.entries()) {
+    if (u.warns > 0 && u.lastWarnAt && t - u.lastWarnAt > decayWarnsMs()) {
+      u.warns = 0;
+    }
+    if (t - (u.lastSeen || 0) > ttlUsuarioMs() && u.mutedUntil <= t) {
+      users.delete(jid);
+    }
+  }
+  // Tope duro: expulsar a los de actividad más vieja.
+  const max = maxUsuarios();
+  if (users.size > max) {
+    const ordenados = [...users.entries()].sort((a, b) => (a[1].lastSeen || 0) - (b[1].lastSeen || 0));
+    for (let i = 0; i < users.size - max; i++) users.delete(ordenados[i][0]);
+  }
+  return users.size;
+}
+
+function contarUsuarios() {
+  return users.size;
+}
+
+// Lectura de solo lectura del estado de un usuario (para pruebas
+// y monitoreo). Devuelve una copia, nunca la referencia interna.
+function verUsuario(jid) {
+  const u = users.get(jid);
+  if (!u) return null;
+  return { warns: u.warns, mutedUntil: u.mutedUntil, lastSeen: u.lastSeen, mensajes10min: u.timestamps.length };
 }
 
 function registrar(motivo) {
@@ -70,9 +148,10 @@ function registrar(motivo) {
 
 function logEvento(tipo, jid, detalle) {
   const hora = new Date().toISOString();
-  // Log simple a consola, con prefijo para filtrar con grep.
-  // Ejemplo: [ANTISPAM] [BLOQUEADO] 521... | flood | 12 msg/min
-  console.log(`[ANTISPAM] [${tipo}] ${hora} | ${jid} | ${detalle}`);
+  // Solo JID enmascarado + motivo + contadores. Nunca el texto
+  // del mensaje ni el número completo: los logs no son lugar
+  // para datos privados.
+  console.log(`[ANTISPAM] [${tipo}] ${hora} | ${mascaraJid(jid)} | ${detalle}`);
 }
 
 // Extrae el texto de un mensaje de Baileys (varios formatos).
@@ -143,10 +222,8 @@ setInterval(() => {
   const t = now();
   for (const [jid, u] of users.entries()) {
     limpiarViejos(u, t);
-    if (u.timestamps.length === 0 && u.mutedUntil < t && u.warns === 0) {
-      users.delete(jid);
-    }
   }
+  purgarUsuarios(t);
 }, 5 * MIN_MS).unref();
 
 /**
@@ -160,18 +237,27 @@ function revisarMensaje(msg, { isGroup = false, isAdmin = false } = {}) {
   const jid = msg.key?.remoteJid || 'desconocido';
   const sender = msg.key?.participant || jid; // en grupos, el que manda
   const texto = extraerTexto(msg);
-  const u = getUser(sender);
+  const numeroSender = numeroDe(sender);
 
   // ---- 1. Blocklist / allowlist / dueño ----
-  if (config.BLOCKLIST.includes(sender.split('@')[0])) {
+  // Se resuelve ANTES de crear la entrada en el Map: esta gente
+  // no necesita estado y no debe ocupar memoria.
+  if (config.BLOCKLIST.includes(numeroSender)) {
     registrar('blocklist');
     logEvento('BLOQUEADO', sender, 'blocklist');
     return { allowed: false, reason: 'blocklist', action: 'ignore' };
   }
-  const esDueno = sender.split('@')[0] === config.OWNER_NUMBER;
-  const esWhitelist = config.WHITELIST.includes(sender.split('@')[0]);
+  const esDueno = numeroSender === config.OWNER_NUMBER;
+  const esWhitelist = config.WHITELIST.includes(numeroSender);
   if (esDueno || esWhitelist) {
     return { allowed: true, reason: 'bypass dueño/whitelist' };
+  }
+
+  const u = getUser(sender);
+  u.lastSeen = t;
+  // Si lleva mucho sin reincidir, los warns se resetean solos.
+  if (u.warns > 0 && u.lastWarnAt && t - u.lastWarnAt > decayWarnsMs()) {
+    u.warns = 0;
   }
 
   // ---- 2. Mute temporal activo ----
@@ -195,6 +281,7 @@ function revisarMensaje(msg, { isGroup = false, isAdmin = false } = {}) {
   const ultimoMin = u.timestamps.filter(x => t - x < MIN_MS).length;
   if (ultimoMin > maxMin) {
     u.warns++;
+    u.lastWarnAt = t;
     u.mutedUntil = t + config.MUTE_SECONDS * 1000;
     stats.muteados++;
     registrar('rate-limit-min');
@@ -208,6 +295,7 @@ function revisarMensaje(msg, { isGroup = false, isAdmin = false } = {}) {
   }
   if (u.timestamps.length > max10) {
     u.warns++;
+    u.lastWarnAt = t;
     u.mutedUntil = t + config.MUTE_SECONDS * 1000;
     stats.muteados++;
     registrar('rate-limit-10min');
@@ -224,11 +312,13 @@ function revisarMensaje(msg, { isGroup = false, isAdmin = false } = {}) {
   if (texto) {
     const repetidos = u.recentTexts.filter(x => x.text === texto).length;
     u.recentTexts.push({ text: texto, at: t });
+    if (u.recentTexts.length > 20) u.recentTexts = u.recentTexts.slice(-20);
     if (repetidos + 1 > config.MAX_SAME_MSG) {
       u.warns++;
+      u.lastWarnAt = t;
       stats.advertencias++;
       registrar('mensaje-repetido');
-      logEvento('BLOQUEADO', sender, `mismo mensaje x${repetidos + 1} en 2 min: "${texto.slice(0, 60)}"`);
+      logEvento('BLOQUEADO', sender, `mismo mensaje x${repetidos + 1} en 2 min (${texto.length} caracteres)`);
       return {
         allowed: false,
         reason: 'mensaje-repetido',
@@ -308,7 +398,7 @@ function revisarMensaje(msg, { isGroup = false, isAdmin = false } = {}) {
   const score = calcularSpamScore(texto, links, menciones);
   if (score >= config.SPAM_SCORE_THRESHOLD) {
     registrar('spam-score');
-    logEvento('BLOQUEADO', sender, `spam score ${score} (umbral ${config.SPAM_SCORE_THRESHOLD}): "${texto.slice(0, 80)}"`);
+    logEvento('BLOQUEADO', sender, `spam score ${score} (umbral ${config.SPAM_SCORE_THRESHOLD}, ${texto.length} caracteres)`);
     return {
       allowed: false,
       reason: 'spam-score',
@@ -356,4 +446,10 @@ module.exports = {
   delayHumano,
   getStats,
   resetStats,
+  // Para pruebas y monitoreo (no son comandos):
+  purgarUsuarios,
+  contarUsuarios,
+  verUsuario,
+  mascaraJid,
+  numeroDe,
 };

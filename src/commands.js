@@ -25,6 +25,14 @@ function numeroDe(jid) {
   return (jid || '').split('@')[0].split(':')[0];
 }
 
+// Enmascara el número del dueño: !info lo puede correr cualquiera
+// en un grupo, no tiene por qué ver el número completo.
+function mascaraNumero(numero) {
+  const n = String(numero || '');
+  if (n.length <= 4) return '****';
+  return `${n.slice(0, 4)}****${n.slice(-2)}`;
+}
+
 function menuTexto() {
   return [
     `*${config.BOT_NAME}* — Menú`,
@@ -80,9 +88,9 @@ function infoTexto() {
   return [
     `*${config.BOT_NAME}*`,
     '',
-    'Bot propio con Baileys + antispam.',
+    `Bot propio con Baileys + antispam.`,
     `Prefijo: ${PREFIX}`,
-    `Dueño: ${config.OWNER_NUMBER}`,
+    `Dueño: ${mascaraNumero(config.OWNER_NUMBER)}`,
     '',
     'Módulos locales (sin APIs externas):',
     '• Economía: monedas, daily, trabajo, apuestas, tienda',
@@ -367,6 +375,7 @@ async function procesarComando(texto, ctx = {}) {
     case 'invitacion':
     case 'invitación': {
       const err = soloAdmin(ctx); if (err) return err;
+      const errBot = necesitaBotAdmin(ctx); if (errBot) return errBot;
       return grupo.enlaceGrupo(ctx);
     }
 

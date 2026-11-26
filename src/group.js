@@ -6,9 +6,20 @@
 //
 // Ojo: !tagall menciona a todos, así que es solo para admins
 // y tiene su propio cooldown, no se toca el antispam general.
+//
+// Estabilidad (auditoría 2026-11-26):
+// - Nadie puede expulsar por accidente al dueño, al bot, al
+//   creador del grupo (superadmin) ni —salvo el dueño— a un
+//   admin. Los avisos a un admin nunca terminan en expulsión.
+// - Cada acción admin valida permisos ANTES de llamar a Baileys
+//   y revisa que el objetivo siga en el grupo.
+// - infoGrupo / mencionarATodos ya no tiran excepciones sin
+//   atrapar: devuelven un mensaje amable y el bot sigue vivo.
+// - El cooldown de !tagall se poda: el Map ya no crece sin fin.
 // ============================================
 
 const { load, save } = require('./store');
+const { obtenerMetaGrupo } = require('./groupmeta');
 const config = require('../config');
 
 const ARCHIVO_AVISOS = 'warns.json';
@@ -36,6 +47,53 @@ function tieneLink(texto) {
   return /https?:\/\/[^\s]+|www\.[^\s]+/i.test(texto || '');
 }
 
+// ---- Roles dentro del grupo (usa la caché de groupmeta.js) ----
+
+// Devuelve 'superadmin' | 'admin' | null para un JID.
+// metaGrupo viene de index.js; si no viene, se pide a Baileys (con caché).
+async function rolEnGrupo(ctx, jid) {
+  try {
+    let meta = ctx.metaGrupo;
+    if (!meta && ctx.sock) meta = await obtenerMetaGrupo(ctx.sock, ctx.jid);
+    if (!meta) return null;
+    const part = (meta.participants || []).find(p => numeroDe(p.id) === numeroDe(jid));
+    return part?.admin || null;
+  } catch {
+    return null;
+  }
+}
+
+// ¿El objetivo está en el grupo? null = no se pudo comprobar.
+async function estaEnGrupo(ctx, jid) {
+  try {
+    let meta = ctx.metaGrupo;
+    if (!meta && ctx.sock) meta = await obtenerMetaGrupo(ctx.sock, ctx.jid);
+    if (!meta) return null;
+    return (meta.participants || []).some(p => numeroDe(p.id) === numeroDe(jid));
+  } catch {
+    return null;
+  }
+}
+
+// Protegidos contra expulsión: el bot, el dueño y el creador del grupo.
+// Devuelve un texto con el motivo, o null si no está protegido.
+// `accion` es 'kick' | 'demote' | 'warn'.
+async function protegido(ctx, objetivoJid, accion) {
+  const num = numeroDe(objetivoJid);
+  const numBot = ctx.sock?.user?.id ? numeroDe(ctx.sock.user.id) : null;
+  if (numBot && num === numBot) return 'al bot no, we';
+  if (num === config.OWNER_NUMBER) return 'al dueño no se le toca, we';
+  const rol = await rolEnGrupo(ctx, objetivoJid);
+  if (rol === 'superadmin') return 'es el creador del grupo, no se le toca';
+  if (accion === 'kick' && rol === 'admin' && !ctx.esDueno) {
+    return 'es admin del grupo: solo el dueño puede expulsar a un admin';
+  }
+  if (accion === 'demote' && rol !== 'admin' && rol !== 'superadmin') {
+    return 'ni es admin, we';
+  }
+  return null;
+}
+
 // ---- Antilink (por grupo) ----
 
 function esAntilinkActivo(jidGrupo) {
@@ -60,11 +118,20 @@ function guardarAvisos(e) {
 }
 
 // Suma un aviso. Al llegar al límite, intenta expulsar (si el bot es admin).
+// A un admin / creador / dueño / bot NUNCA se le expulsa por avisos:
+// se registra el aviso y se avisa, pero no hay expulsión.
 async function advertir(ctx, objetivoJid, motivo) {
+  const num = numeroDe(objetivoJid);
+  const numBot = ctx.sock?.user?.id ? numeroDe(ctx.sock.user.id) : null;
+  if (numBot && num === numBot) return 'Al bot no se le pone aviso, we.';
+  if (num === config.OWNER_NUMBER) return 'Al dueño no se le pone aviso, we.';
+  const rol = await rolEnGrupo(ctx, objetivoJid);
+  if (rol === 'superadmin') return 'Es el creador del grupo, no se le pone aviso.';
+  const esAdminProtegido = rol === 'admin';
+
   const e = estadoAvisos();
   const gid = ctx.jid;
   e.groups[gid] = e.groups[gid] || {};
-  const num = numeroDe(objetivoJid);
   const reg = e.groups[gid][num] || { count: 0, razones: [] };
   reg.count += 1;
   reg.razones.push(motivo);
@@ -72,6 +139,9 @@ async function advertir(ctx, objetivoJid, motivo) {
   guardarAvisos(e);
 
   if (reg.count >= config.WARN_LIMIT) {
+    if (esAdminProtegido) {
+      return { text: `⚠️ @${num} llegó a ${config.WARN_LIMIT} avisos, pero es admin y no lo expulso.`, mentions: [objetivoJid] };
+    }
     if (ctx.isBotAdmin) {
       try {
         await ctx.sock.groupParticipantsUpdate(gid, [objetivoJid], 'remove');
@@ -114,7 +184,10 @@ function quitarAviso(jidGrupo, objetivoJid) {
 async function expulsar(ctx, objetivoJid) {
   const num = numeroDe(objetivoJid);
   if (num === numeroDe(ctx.sender)) return 'No te puedes expulsar a ti mismo, we.';
-  if (num === config.OWNER_NUMBER) return 'Al dueño no se le expulsa, we.';
+  const motivoProtegido = await protegido(ctx, objetivoJid, 'kick');
+  if (motivoProtegido) return `No puedo expulsarlo: ${motivoProtegido}.`;
+  const enGrupo = await estaEnGrupo(ctx, objetivoJid);
+  if (enGrupo === false) return 'Esa persona ya no está en el grupo, we.';
   try {
     await ctx.sock.groupParticipantsUpdate(ctx.jid, [objetivoJid], 'remove');
     return { text: `👢 Expulsé a @${num} del grupo.`, mentions: [objetivoJid] };
@@ -125,6 +198,8 @@ async function expulsar(ctx, objetivoJid) {
 
 async function promover(ctx, objetivoJid) {
   const num = numeroDe(objetivoJid);
+  const rol = await rolEnGrupo(ctx, objetivoJid);
+  if (rol === 'admin' || rol === 'superadmin') return `@${num} ya es admin, we.`;
   try {
     await ctx.sock.groupParticipantsUpdate(ctx.jid, [objetivoJid], 'promote');
     return { text: `⬆️ @${num} ahora es admin del grupo.`, mentions: [objetivoJid] };
@@ -135,7 +210,12 @@ async function promover(ctx, objetivoJid) {
 
 async function degradar(ctx, objetivoJid) {
   const num = numeroDe(objetivoJid);
+  const numBot = ctx.sock?.user?.id ? numeroDe(ctx.sock.user.id) : null;
+  if (numBot && num === numBot) return 'No me puedo quitar admin a mí mismo, we.';
   if (num === config.OWNER_NUMBER) return 'Al dueño no se le quita nada, we.';
+  const rol = await rolEnGrupo(ctx, objetivoJid);
+  if (rol === 'superadmin') return 'Es el creador del grupo, no se le quita nada.';
+  if (rol !== 'admin') return 'Esa persona ni es admin, we.';
   try {
     await ctx.sock.groupParticipantsUpdate(ctx.jid, [objetivoJid], 'demote');
     return { text: `⬇️ @${num} ya no es admin.`, mentions: [objetivoJid] };
@@ -146,35 +226,51 @@ async function degradar(ctx, objetivoJid) {
 
 async function mencionarATodos(ctx) {
   const ahora = Date.now();
+  // Poda del cooldown: borrar entradas viejas y topar el Map.
+  for (const [gid, at] of ultimoTagall) {
+    if (ahora - at > config.TAGALL_COOLDOWN_MS) ultimoTagall.delete(gid);
+  }
+  if (ultimoTagall.size > 100) {
+    const masViejo = [...ultimoTagall.entries()].sort((a, b) => a[1] - b[1])[0];
+    if (masViejo) ultimoTagall.delete(masViejo[0]);
+  }
   const ultimo = ultimoTagall.get(ctx.jid) || 0;
   const espera = ultimo + config.TAGALL_COOLDOWN_MS - ahora;
   if (espera > 0) return `⏳ Espera ${Math.ceil(espera / 1000)}s para otro tagall, we.`;
-  let meta = ctx.metaGrupo;
-  if (!meta) meta = await ctx.sock.groupMetadata(ctx.jid);
-  const botNum = (ctx.sock.user?.id || '').split('@')[0].split(':')[0];
-  const miembros = meta.participants.filter(p => numeroDe(p.id) !== botNum);
-  ultimoTagall.set(ctx.jid, ahora);
-  const texto = ['📣 *Atención a todos*', '', ...miembros.map(p => `@${numeroDe(p.id)}`)].join('\n');
-  return { text: texto, mentions: miembros.map(p => p.id) };
+  try {
+    let meta = ctx.metaGrupo;
+    if (!meta) meta = await obtenerMetaGrupo(ctx.sock, ctx.jid);
+    const botNum = (ctx.sock.user?.id || '').split('@')[0].split(':')[0];
+    const miembros = meta.participants.filter(p => numeroDe(p.id) !== botNum);
+    ultimoTagall.set(ctx.jid, ahora);
+    const texto = ['📣 *Atención a todos*', '', ...miembros.map(p => `@${numeroDe(p.id)}`)].join('\n');
+    return { text: texto, mentions: miembros.map(p => p.id) };
+  } catch {
+    return 'No pude sacar la lista del grupo. Inténtalo de nuevo en un rato.';
+  }
 }
 
 async function infoGrupo(ctx) {
-  let meta = ctx.metaGrupo;
-  if (!meta) meta = await ctx.sock.groupMetadata(ctx.jid);
-  const admins = meta.participants.filter(p => p.admin).length;
-  const fecha = meta.creation
-    ? new Date(meta.creation * 1000).toLocaleDateString('es-MX')
-    : 'desconocida';
-  const desc = (meta.desc || 'sin descripción').slice(0, 200);
-  return [
-    `👥 *${meta.subject || 'Grupo'}*`,
-    '',
-    `Miembros: ${meta.participants.length} (${admins} admins)`,
-    `Creado: ${fecha}`,
-    `ID: ${meta.id}`,
-    '',
-    `Descripción: ${desc}`,
-  ].join('\n');
+  try {
+    let meta = ctx.metaGrupo;
+    if (!meta) meta = await obtenerMetaGrupo(ctx.sock, ctx.jid);
+    const admins = meta.participants.filter(p => p.admin).length;
+    const fecha = meta.creation
+      ? new Date(meta.creation * 1000).toLocaleDateString('es-MX')
+      : 'desconocida';
+    const desc = (meta.desc || 'sin descripción').slice(0, 200);
+    return [
+      `👥 *${meta.subject || 'Grupo'}*`,
+      '',
+      `Miembros: ${meta.participants.length} (${admins} admins)`,
+      `Creado: ${fecha}`,
+      `ID: ${meta.id}`,
+      '',
+      `Descripción: ${desc}`,
+    ].join('\n');
+  } catch {
+    return 'No pude sacar la info del grupo. Inténtalo de nuevo en un rato.';
+  }
 }
 
 async function abrirGrupo(ctx) {
@@ -210,4 +306,5 @@ module.exports = {
   advertir, verAvisos, quitarAviso,
   expulsar, promover, degradar,
   mencionarATodos, infoGrupo, abrirGrupo, cerrarGrupo, enlaceGrupo,
+  rolEnGrupo, estaEnGrupo,
 };

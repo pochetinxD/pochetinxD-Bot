@@ -186,6 +186,18 @@ whatsapp-bot/
 - **Sin stickers**: convertir imágenes a sticker necesita ffmpeg y es otro rollo; no está en esta versión.
 - **Sin respuestas automáticas a todo**: el bot solo contesta comandos con `!`, por diseño, para no parecer robot.
 
+## Estabilidad (auditoría 2026-11-26)
+
+Cambios internos; los comandos y la estructura no cambiaron:
+
+- **Reconexión con backoff**: si se cae la conexión, reintenta con esperas que crecen (5 s, 10 s, 20 s... hasta 5 min) y se detiene a los 10 intentos sin éxito; un cierre de sesión (401/logged out) ya no reintenta sin fin, pide re-escanear el QR. Al conectar bien, el contador se resetea.
+- **Datos en disco más seguros**: los JSON de `data/` se leen una vez y quedan en caché; las escrituras son atómicas (archivo temporal + rename + fsync) y, si un archivo se corrompe, se aparta como `.corrupt-<fecha>` en vez de perderse. El XP ya no escribe a disco en cada mensaje.
+- **Antispam sin fuga de memoria**: los usuarios inactivos se purgan a los 30 min (máx. 500 en memoria), los warns caducan a la hora y los logs ya no muestran números completos ni texto de mensajes.
+- **Admins protegidos**: nunca se expulsa al bot, al dueño, al creador del grupo ni a un admin (salvo el dueño); los avisos a un admin no terminan en expulsión; `!link` ya verifica que el bot sea admin antes de pedir el código.
+- **Menos trabajo por mensaje**: los metadatos del grupo se cachean 45 s y solo se consultan cuando hace falta (comando, antilink o solo-admins).
+- **Licencia MIT** incluida (`LICENSE`).
+- **Pruebas**: `npm test` (Node built-in, sin frameworks) — 24 pruebas de store, antispam, permisos de grupo y comandos. `npm run check` valida la sintaxis de todos los módulos.
+
 ## Si algo falla
 
 - **“Sesión cerrada / logged out”**: borra `auth_info/` y vuelve a escanear el QR.

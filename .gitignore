@@ -1,16 +1,22 @@
-# Sesión de WhatsApp (contiene tus credenciales, NUNCA la subas)
+# Sesión de WhatsApp (contiene tus credenciales, NUNCA se sube)
 auth_info/
-*.json
-!package.json
-!package-lock.json
-# Los datos del bot (economía, niveles, avisos) NO se suben,
-# pero el catálogo de gacha y los ejemplos sí:
-!data/waifus.json
-!data/*.example.json
+auth_info/**
 
-# Entorno
+# Entorno: el .env real nunca se sube; el ejemplo sí
 .env
 .env.local
+.env.*
+!.env.example
+
+# Datos reales del bot (economía, niveles, avisos, AFK, gacha).
+# NO se suben. Solo el catálogo de gacha y los ejemplos:
+data/*.json
+!data/waifus.json
+!data/*.example.json
+# Temporales y respaldos de archivos corruptos del store
+data/*.tmp
+data/*.corrupt-*
+*.tmp
 
 # Dependencias
 node_modules/
@@ -18,3 +24,6 @@ node_modules/
 # Logs y SO
 *.log
 .DS_Store
+
+# Cobertura de pruebas
+coverage/

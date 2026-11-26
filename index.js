@@ -28,16 +28,69 @@ const { procesarComando } = require('./src/commands');
 const nivelMod = require('./src/level');
 const afkMod = require('./src/afk');
 const { esAntilinkActivo, tieneLink } = require('./src/group');
+const { obtenerMetaGrupo } = require('./src/groupmeta');
+const { flushAll } = require('./src/store');
 
 const logger = pino({ level: 'silent' }); // Baileys es muy chismoso, lo silenciamos
 
-async function conectar() {
-  const { state, saveCreds } = await useMultiFileAuthState(config.AUTH_DIR);
-  const { version } = await fetchLatestBaileysVersion();
+// ---- Reconexión progresiva (exponential backoff) ----
+// Estado compartido: cuántos reintentos llevamos seguidos y si
+// ya hay un reintento programado. Sin esto, un cierre podía
+// programar varios conectar() a la vez (conexiones duplicadas)
+// y reintentar para siempre sin tope.
+let intentosRecon = 0;
+let temporizadorRecon = null;
+let sockActual = null;
 
+function retrasoRecon(intento) {
+  const base = config.RECONNECT_BASE_MS || config.RECONNECT_DELAY_MS || 5000;
+  const max = config.RECONNECT_MAX_MS || 300000;
+  return Math.min(max, base * Math.pow(2, intento));
+}
+
+// Programa UN reintento (si no hay ya uno) o se rinde al llegar
+// al tope. Devuelve true si programó un reintento.
+function agendarReconexion(motivo) {
+  if (temporizadorRecon) return true; // ya hay uno en camino, no duplicar
+  if (intentosRecon >= (config.RECONNECT_MAX_ATTEMPTS || 10)) {
+    console.log(`🛑 Ya intenté reconectar ${intentosRecon} veces (${motivo}). Me rindo: reinicia el bot a mano.`);
+    return false;
+  }
+  const espera = retrasoRecon(intentosRecon);
+  intentosRecon += 1;
+  console.log(`🔄 Reintentando en ${Math.round(espera / 1000)}s (intento ${intentosRecon}/${config.RECONNECT_MAX_ATTEMPTS || 10}, ${motivo})...`);
+  temporizadorRecon = setTimeout(() => {
+    temporizadorRecon = null;
+    conectar().catch((err) => {
+      console.error('💥 Falló la reconexión:', err.message);
+      agendarReconexion('error al reconectar');
+    });
+  }, espera);
+  if (temporizadorRecon.unref) temporizadorRecon.unref();
+  return true;
+}
+
+async function conectar() {
+  let state;
+  let version;
+  try {
+    ({ state, saveCreds } = await useMultiFileAuthState(config.AUTH_DIR));
+    ({ version } = await fetchLatestBaileysVersion());
+  } catch (err) {
+    // Sin red o sin sesión legible: no crashear, reintentar con backoff.
+    console.error('💥 No pude preparar la conexión:', err.message);
+    agendarReconexion('error de inicio');
+    return null;
+  }
+
+  // El número del dueño nunca se imprime completo en los logs.
+  const duenoLog = (() => {
+    const n = String(config.OWNER_NUMBER || '');
+    return n.length > 4 ? `${n.slice(0, 4)}****${n.slice(-2)}` : '****';
+  })();
   console.log(`\n🤖 ${config.BOT_NAME} — iniciando...`);
   console.log(`   Baileys v${version.join('.')} | Prefijo: ${config.PREFIX}`);
-  console.log(`   Dueño: ${config.OWNER_NUMBER} (cámbialo en config.js / .env si no es ese)`);
+  console.log(`   Dueño: ${duenoLog} (cámbialo en config.js / .env si no es ese)`);
   console.log(`   Antispam: ${config.MAX_MSG_PER_MIN}/min, ${config.MAX_FORWARDED_PER_HOUR} reenviados/hora\n`);
 
   const sock = makeWASocket({
@@ -50,6 +103,7 @@ async function conectar() {
     // No sincronizar historial completo al conectar.
     syncFullHistory: false,
   });
+  sockActual = sock;
 
   sock.ev.on('creds.update', saveCreds);
 
@@ -62,22 +116,39 @@ async function conectar() {
     }
 
     if (connection === 'open') {
+      // Conexión buena: el contador de reintentos vuelve a cero.
+      intentosRecon = 0;
+      if (temporizadorRecon) { clearTimeout(temporizadorRecon); temporizadorRecon = null; }
       console.log('✅ Conectado a WhatsApp. El bot ya está vivo.');
     }
 
     if (connection === 'close') {
       const code = lastDisconnect?.error?.output?.statusCode;
-      const loggedOut = code === DisconnectReason.loggedOut;
       console.log(`❌ Conexión cerrada (código ${code}).`);
 
-      if (loggedOut) {
-        // Te sacaron / cerraste sesión: hay que borrar auth y escanear de nuevo.
+      // Cierres que EXIGEN volver a autenticar: no reintentar,
+      // reintentar solo pelearía con la sesión o entraría en bucle.
+      if (code === DisconnectReason.loggedOut) {
         console.log('🔑 Sesión cerrada. Borra la carpeta ./auth_info y vuelve a escanear el QR.');
         return;
       }
-      // Cualquier otro cierre: reconectar solo, con un respiro.
-      console.log(`🔄 Reintentando en ${config.RECONNECT_DELAY_MS / 1000}s...`);
-      setTimeout(conectar, config.RECONNECT_DELAY_MS);
+      if (code === DisconnectReason.badSession) {
+        console.log('🔑 Sesión inválida (badSession). Borra ./auth_info y escanea de nuevo.');
+        return;
+      }
+      if (code === DisconnectReason.connectionReplaced) {
+        console.log('🔑 Otra sesión tomó tu lugar (abriste WhatsApp en otro lado). No reconecto para no pelear con ella.');
+        return;
+      }
+      // restartRequired (515): el servidor pide reiniciar, reintento corto.
+      if (code === DisconnectReason.restartRequired) {
+        console.log('🔄 El servidor pidió reiniciar la conexión.');
+        agendarReconexion('restartRequired');
+        return;
+      }
+      // El resto (428, 515 genérico, 408 timeout, pérdida de red):
+      // temporales, reintentar con backoff.
+      agendarReconexion(`código ${code}`);
     }
   });
 
@@ -100,14 +171,23 @@ async function conectar() {
         const numeroSender = sender.split('@')[0].split(':')[0];
         const esDueno = numeroSender === config.OWNER_NUMBER;
 
-        // ¿Es admin del grupo? ¿Y el bot es admin?
-        // Se usa en los comandos de grupo y en el antilink.
+        // Texto una sola vez (antes se extraía dos veces por mensaje).
+        const textoCrudo = extraerTexto(msg);
+        const esComando = textoCrudo.startsWith(config.PREFIX);
+
+        // ¿Hace falta saber quién es admin? Solo si es un comando,
+        // si el antilink está activo en este grupo, o si el modo
+        // GROUP_ONLY_ADMINS está prendido. Antes se pedía
+        // groupMetadata() en CADA mensaje de grupo: ahora se pide
+        // solo cuando hace falta y con caché de 45s (groupmeta.js).
+        const antilinkActivo = isGroup && !esDueno && esAntilinkActivo(jid);
+        const necesitaMeta = isGroup && (esComando || antilinkActivo || config.GROUP_ONLY_ADMINS);
         let isAdmin = false;
         let isBotAdmin = false;
         let metaGrupo = null;
-        if (isGroup) {
+        if (necesitaMeta) {
           try {
-            metaGrupo = await sock.groupMetadata(jid);
+            metaGrupo = await obtenerMetaGrupo(sock, jid);
             const botNum = (sock.user?.id || '').split('@')[0].split(':')[0];
             const part = metaGrupo.participants.find(p => p.id === sender);
             isAdmin = part?.admin === 'admin' || part?.admin === 'superadmin';
@@ -130,8 +210,7 @@ async function conectar() {
 
         // 1b) ANTILINK (solo grupos): si está activado y un no-admin manda
         // un link, se borra el mensaje y se le avisa. No se procesa nada más.
-        const textoCrudo = extraerTexto(msg);
-        if (isGroup && !esDueno && !isAdmin && esAntilinkActivo(jid) && tieneLink(textoCrudo)) {
+        if (antilinkActivo && tieneLink(textoCrudo)) {
           try { await sock.sendMessage(jid, { delete: msg.key }); } catch { /* sin admin no se puede borrar */ }
           await delayHumano();
           await sock.sendMessage(jid, { text: '⚠️ En este grupo el antilink está activado, we. Nada de links.' }, { quoted: msg });
@@ -156,8 +235,7 @@ async function conectar() {
 
         // 2) Solo comandos con prefijo. Lo demás se ignora a propósito:
         //    responder a TODO es lo que te marca como bot.
-        const texto = extraerTexto(msg);
-        const respuesta = await procesarComando(texto, {
+        const respuesta = await procesarComando(textoCrudo, {
           esDueno, isGroup, isAdmin, isBotAdmin, sender, jid, sock, msg, metaGrupo,
         });
 
@@ -197,8 +275,25 @@ async function conectar() {
   return sock;
 }
 
-// Arranque
-conectar().catch((err) => {
-  console.error('💥 No se pudo iniciar el bot:', err);
-  process.exit(1);
-});
+// Apagado limpio: volcar al disco lo que el store tenía pendiente
+// (XP diferido) antes de salir. Sin esto, el último minuto de XP
+// se podía perder al hacer Ctrl+C.
+function apagarLimpio(senal) {
+  try { flushAll(); } catch { /* mejor esfuerzo */ }
+  try { if (sockActual && typeof sockActual.end === 'function') sockActual.end(); } catch { /* mejor esfuerzo */ }
+  console.log(`\n👋 Apagando (${senal}). Datos guardados.`);
+  process.exit(0);
+}
+
+// Arranque: solo cuando se corre con `node index.js`.
+// Al hacer require('./index') desde pruebas no se conecta nada.
+if (require.main === module) {
+  process.on('SIGINT', () => apagarLimpio('SIGINT'));
+  process.on('SIGTERM', () => apagarLimpio('SIGTERM'));
+  conectar().catch((err) => {
+    console.error('💥 No se pudo iniciar el bot:', err.message);
+    agendarReconexion('error de inicio');
+  });
+}
+
+module.exports = { conectar, agendarReconexion, retrasoRecon, obtenerMetaGrupo };

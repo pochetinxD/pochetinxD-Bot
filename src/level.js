@@ -6,7 +6,7 @@
 // Guardado en data/level.json.
 // ============================================
 
-const { load, save } = require('./store');
+const { load, save, saveSoon } = require('./store');
 const config = require('../config');
 
 const ARCHIVO = 'level.json';
@@ -33,6 +33,8 @@ function usuario(e, numero) {
 }
 
 // Suma XP a un usuario. Devuelve si subió de nivel.
+// El XP es poco crítico: se guarda diferido (saveSoon) para no
+// escribir el disco en cada mensaje; flushAll() lo vuelca al apagar.
 function agregarXp(numero) {
   const e = estado();
   const u = usuario(e, numero);
@@ -41,7 +43,7 @@ function agregarXp(numero) {
   u.xp += gano;
   u.msgs += 1;
   u.level = nivelPara(u.xp);
-  guardar(e);
+  saveSoon(ARCHIVO, e);
   return { xp: u.xp, nivel: u.level, subio: u.level > antes };
 }
 
