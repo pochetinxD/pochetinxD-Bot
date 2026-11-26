@@ -108,6 +108,21 @@ WhatsApp → ⋮ → **Dispositivos vinculados** → **Vincular un dispositivo**
 
 La sesión queda guardada en `auth_info/`. La próxima vez ya no pide QR, entra directo. Si cierras sesión desde el teléfono, borra esa carpeta y vuelve a escanear.
 
+### Entrar con código (sin QR)
+
+Si no todos pueden escanear el QR, en tu `.env` pon:
+
+```env
+USE_PAIRING_CODE=true
+PAIRING_PHONE=5215512345678
+```
+
+Si `PAIRING_PHONE` está vacío, usa tu `OWNER_NUMBER`. Al correr `npm start` te imprime un código de 8 caracteres (ej: `ABCD-1234`), mételo en:
+
+WhatsApp → ⋮ → **Dispositivos vinculados** → **Vincular un dispositivo** → **Vincular con número de teléfono**
+
+La sesión queda guardada en `auth_info/` igual que con el QR, así que el código solo se pide la primera vez. Si pedir el código falla, el bot sigue con el QR normal. Y si ya hay sesión guardada, no pide ni QR ni código.
+
 Para verificar que todo está bien sin conectar:
 
 ```bash

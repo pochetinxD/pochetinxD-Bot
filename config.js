@@ -109,6 +109,14 @@ module.exports = {
 
   // ---- Sesión ----
   AUTH_DIR: process.env.AUTH_DIR || './auth_info',
+  // ---- Login: QR o código de emparejamiento ----
+  // Si es true, al no haber sesión se pide un código de 8 caracteres
+  // en vez del QR (útil cuando el bot lo usan otros y no todos
+  // pueden escanear). El código se mete en WhatsApp > Dispositivos
+  // vinculados > Vincular con número de teléfono.
+  USE_PAIRING_CODE: process.env.USE_PAIRING_CODE === 'true' || process.env.PAIRING_CODE === 'true',
+  // Número al que va el código. Si está vacío, usa OWNER_NUMBER.
+  PAIRING_PHONE: (process.env.PAIRING_PHONE || '').trim(),
   // Tiempo base entre reintentos de reconexión (ms). Se duplica en
   // cada intento (exponential backoff) hasta RECONNECT_MAX_MS.
   RECONNECT_DELAY_MS: parseInt(process.env.RECONNECT_DELAY_MS || '5000', 10),

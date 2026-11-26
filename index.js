@@ -4,7 +4,9 @@
 // Uso:
 //   npm install
 //   npm start
-//   Escanea el QR con WhatsApp > Dispositivos vinculados
+//   Escanea el QR con WhatsApp > Dispositivos vinculados,
+//   o pon USE_PAIRING_CODE=true en .env y usa el código de 8
+//   caracteres que imprime la terminal (sin QR).
 //
 // NO uses tu número principal si te da miedo el ban.
 // Baileys es NO oficial: el antispam ayuda, pero no te hace inmune.
@@ -30,6 +32,7 @@ const afkMod = require('./src/afk');
 const { esAntilinkActivo, tieneLink } = require('./src/group');
 const { obtenerMetaGrupo } = require('./src/groupmeta');
 const { flushAll } = require('./src/store');
+const { pairingHabilitado, telefonoPairing, pedirCodigo } = require('./src/pairing');
 
 const logger = pino({ level: 'silent' }); // Baileys es muy chismoso, lo silenciamos
 
@@ -91,6 +94,7 @@ async function conectar() {
   console.log(`\n🤖 ${config.BOT_NAME} — iniciando...`);
   console.log(`   Baileys v${version.join('.')} | Prefijo: ${config.PREFIX}`);
   console.log(`   Dueño: ${duenoLog} (cámbialo en config.js / .env si no es ese)`);
+  console.log(`   Login: ${pairingHabilitado(config) ? 'código de emparejamiento' : 'QR'}`);
   console.log(`   Antispam: ${config.MAX_MSG_PER_MIN}/min, ${config.MAX_FORWARDED_PER_HOUR} reenviados/hora\n`);
 
   const sock = makeWASocket({
@@ -106,6 +110,30 @@ async function conectar() {
   sockActual = sock;
 
   sock.ev.on('creds.update', saveCreds);
+
+  // ---- Login con código (sin QR) ----
+  // Si USE_PAIRING_CODE=true y todavía no hay sesión registrada,
+  // se pide un código de 8 caracteres en vez de depender del QR.
+  // Si pedirlo falla (número inválido, Baileys sin el método, sin
+  // red), se sigue con el QR normal: nunca tumba el arranque.
+  if (pairingHabilitado(config) && !state.creds.registered) {
+    const telefono = telefonoPairing(config);
+    if (!telefono) {
+      console.log('⚠️ USE_PAIRING_CODE=true pero no hay número válido (PAIRING_PHONE u OWNER_NUMBER). Uso QR.');
+    } else if (typeof sock.requestPairingCode !== 'function') {
+      console.log('⚠️ Esta versión de Baileys no tiene código de emparejamiento. Uso QR.');
+    } else {
+      try {
+        const codigo = await pedirCodigo(sock, telefono);
+        const telLog = `${telefono.slice(0, 4)}****${telefono.slice(-2)}`;
+        console.log(`\n🔢 Código de emparejamiento para ${telLog}: ${codigo}`);
+        console.log('   WhatsApp > Dispositivos vinculados > Vincular un dispositivo > Vincular con número de teléfono');
+        console.log('   Escribe ese código ahí. La sesión queda guardada en auth_info/ y ya no lo pide de nuevo.\n');
+      } catch (err) {
+        console.error('⚠️ No pude pedir el código de emparejamiento:', err.message, '— sigo con QR.');
+      }
+    }
+  }
 
   sock.ev.on('connection.update', (update) => {
     const { connection, lastDisconnect, qr } = update;
@@ -129,11 +157,11 @@ async function conectar() {
       // Cierres que EXIGEN volver a autenticar: no reintentar,
       // reintentar solo pelearía con la sesión o entraría en bucle.
       if (code === DisconnectReason.loggedOut) {
-        console.log('🔑 Sesión cerrada. Borra la carpeta ./auth_info y vuelve a escanear el QR.');
+        console.log('🔑 Sesión cerrada. Borra la carpeta ./auth_info y vuelve a conectar (QR o código, según USE_PAIRING_CODE).');
         return;
       }
       if (code === DisconnectReason.badSession) {
-        console.log('🔑 Sesión inválida (badSession). Borra ./auth_info y escanea de nuevo.');
+        console.log('🔑 Sesión inválida (badSession). Borra ./auth_info y conecta de nuevo (QR o código).');
         return;
       }
       if (code === DisconnectReason.connectionReplaced) {
