@@ -17,5 +17,5 @@
     "test": "node --test tests/store.test.js tests/antispam.test.js tests/group.test.js tests/commands.test.js tests/pairing.test.js tests/identidad.test.js"
   },
   "type": "commonjs",
-  "version": "1.0.0"
+  "version": "1.0.2"
 }

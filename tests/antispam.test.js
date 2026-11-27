@@ -89,3 +89,30 @@ describe('antispam', () => {
     assert.ok(m.endsWith('@s.whatsapp.net'), m);
   });
 });
+
+describe('interruptor ANTISPAM_ENABLED', () => {
+  // En proceso hijo con las variables limpias: el default de esta
+  // versión de prueba es apagado; con ANTISPAM_ENABLED=true prende.
+  const { execFileSync } = require('node:child_process');
+  const path = require('node:path');
+
+  function leerFlag(envExtra) {
+    const env = { ...process.env };
+    delete env.ANTISPAM_ENABLED;
+    Object.assign(env, envExtra);
+    const out = execFileSync('node', ['-e', "console.log(require('./config').ANTISPAM_ENABLED)"], {
+      cwd: path.join(__dirname, '..'),
+      env,
+      encoding: 'utf8',
+    });
+    return out.trim();
+  }
+
+  it('viene apagado por default (versión de prueba)', () => {
+    assert.equal(leerFlag({}), 'false');
+  });
+
+  it('prende con ANTISPAM_ENABLED=true', () => {
+    assert.equal(leerFlag({ ANTISPAM_ENABLED: 'true' }), 'true');
+  });
+});

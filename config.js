@@ -23,6 +23,14 @@ module.exports = {
   PREFIX: process.env.PREFIX || '!',
   BOT_NAME: process.env.BOT_NAME || 'Musulmán 🗣️🔥',
 
+  // ---- Antispam: interruptor general ----
+  // VERSIÓN DE PRUEBA: el antispam viene APAGADO. Ningún mensaje
+  // se revisa ni se bloquea, para calar el bot sin que nada lo
+  // frene. Para prenderlo, pon ANTISPAM_ENABLED=true en tu .env.
+  // Ojo: sin antispam sube el riesgo de ban. No reenvíes de todo
+  // ni spamees comandos, y préndelo de nuevo cuando termines el test.
+  ANTISPAM_ENABLED: process.env.ANTISPAM_ENABLED === 'true',
+
   // ---- Antispam: rate limiting por usuario ----
   // Máx. mensajes por minuto antes de advertir / mutear.
   MAX_MSG_PER_MIN: parseInt(process.env.MAX_MSG_PER_MIN || '8', 10),

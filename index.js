@@ -246,15 +246,19 @@ async function conectar() {
         }
 
         // 1) ANTISPAM PRIMERO — si no pasa, no se procesa.
-        const revision = revisarMensaje(msg, { isGroup, isAdmin });
-        if (!revision.allowed) {
-          if (revision.action === 'warn' && revision.warnText) {
-            // Advertir con delay humano, sin spamear advertencias.
-            await delayHumano();
-            await sock.sendMessage(jid, { text: revision.warnText }, { quoted: msg });
+        // En esta versión de prueba el antispam viene apagado
+        // (ANTISPAM_ENABLED=false): se salta la revisión completa.
+        if (config.ANTISPAM_ENABLED) {
+          const revision = revisarMensaje(msg, { isGroup, isAdmin });
+          if (!revision.allowed) {
+            if (revision.action === 'warn' && revision.warnText) {
+              // Advertir con delay humano, sin spamear advertencias.
+              await delayHumano();
+              await sock.sendMessage(jid, { text: revision.warnText }, { quoted: msg });
+            }
+            // action 'mute' o 'ignore': silencio total, ni leemos el mensaje.
+            continue;
           }
-          // action 'mute' o 'ignore': silencio total, ni leemos el mensaje.
-          continue;
         }
 
         // 1b) ANTILINK (solo grupos): si está activado y un no-admin manda
