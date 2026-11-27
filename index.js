@@ -23,6 +23,7 @@ const {
 const pino = require('pino');
 const qrcode = require('qrcode-terminal');
 const fs = require('node:fs');
+const path = require('node:path');
 
 const config = require('./config');
 const { revisarMensaje, extraerTexto, delayHumano } = require('./src/antispam');
@@ -77,6 +78,15 @@ function agendarReconexion(motivo) {
   }, espera);
   if (temporizadorRecon.unref) temporizadorRecon.unref();
   return true;
+}
+
+// Foto del menú: se resuelve respecto a la carpeta del bot (no del
+// directorio desde donde lo lances) y se lee una sola vez.
+const cacheImagenes = new Map();
+function leerImagen(ruta) {
+  const abs = path.isAbsolute(ruta) ? ruta : path.join(__dirname, ruta);
+  if (!cacheImagenes.has(abs)) cacheImagenes.set(abs, fs.readFileSync(abs));
+  return cacheImagenes.get(abs);
 }
 
 async function conectar() {
@@ -217,7 +227,9 @@ async function conectar() {
         const numeroSender = sender.split('@')[0].split(':')[0];
         // mismaIdentidad compara @lid y @s.whatsapp.net (ver groupmeta.js):
         // si el dueño manda en @lid, igual se le reconoce.
-        const esDueno = mismaIdentidad(sender, config.OWNER_NUMBER);
+        // fromMe = lo mandó la propia cuenta del bot, o sea el dueño.
+        // (En privado el jid es el del OTRO, así que sin esto no se reconocía.)
+        const esDueno = !!msg.key.fromMe || mismaIdentidad(sender, config.OWNER_NUMBER);
 
         // Texto una sola vez (antes se extraía dos veces por mensaje).
         const textoCrudo = extraerTexto(msg);
@@ -254,8 +266,7 @@ async function conectar() {
         }
 
         // 1) ANTISPAM PRIMERO — si no pasa, no se procesa.
-        // En esta versión de prueba el antispam viene apagado
-        // (ANTISPAM_ENABLED=false): se salta la revisión completa.
+        // Con ANTISPAM_ENABLED=false se salta la revisión completa.
         if (config.ANTISPAM_ENABLED) {
           const revision = revisarMensaje(msg, { isGroup, isAdmin });
           if (!revision.allowed) {
@@ -325,7 +336,7 @@ async function conectar() {
         let fotoEnviada = false;
         if (imagen) {
           try {
-            const buf = fs.readFileSync(imagen);
+            const buf = leerImagen(imagen);
             await sock.sendMessage(
               jid,
               { image: buf, caption: textoFinal, ...(menciones ? { mentions: menciones } : {}) },

@@ -252,7 +252,8 @@ function revisarMensaje(msg, { isGroup = false, isAdmin = false } = {}) {
     logEvento('BLOQUEADO', sender, 'blocklist');
     return { allowed: false, reason: 'blocklist', action: 'ignore' };
   }
-  const esDueno = mismaIdentidad(sender, config.OWNER_NUMBER);
+  // fromMe = la propia cuenta del bot (el dueño); en privado el jid es del otro.
+  const esDueno = !!msg.key?.fromMe || mismaIdentidad(sender, config.OWNER_NUMBER);
   const esWhitelist = config.WHITELIST.some((n) => mismaIdentidad(sender, n));
   if (esDueno || esWhitelist) {
     return { allowed: true, reason: 'bypass dueño/whitelist' };
