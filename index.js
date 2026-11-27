@@ -34,7 +34,7 @@ const { obtenerMetaGrupo, mismaIdentidad, buscarParticipante } = require('./src/
 const { flushAll } = require('./src/store');
 const { pairingHabilitado, telefonoPairing, pedirCodigo } = require('./src/pairing');
 
-const logger = pino({ level: 'silent' }); // Baileys es muy chismoso, lo silenciamos
+const logger = pino({ level: process.env.LOG_LEVEL || 'silent' }); // LOG_LEVEL=warn en .env para diagnosticar
 
 // ---- Reconexión progresiva (exponential backoff) ----
 // Estado compartido: cuántos reintentos llevamos seguidos y si
@@ -103,6 +103,12 @@ async function conectar() {
   console.log(`   Login: ${pairingHabilitado(config) ? 'código de emparejamiento' : 'QR'}`);
   console.log(`   Antispam: ${config.MAX_MSG_PER_MIN}/min, ${config.MAX_FORWARDED_PER_HOUR} reenviados/hora\n`);
 
+  // Cierra el socket anterior (si quedó vivo) para no tener dos
+  // conexiones peleando por la misma sesión.
+  if (sockActual) {
+    try { sockActual.ev.removeAllListeners(); sockActual.end(undefined); } catch { /* mejor esfuerzo */ }
+  }
+
   const sock = makeWASocket({
     version,
     auth: state,
@@ -118,35 +124,38 @@ async function conectar() {
   sock.ev.on('creds.update', saveCreds);
 
   // ---- Login con código (sin QR) ----
-  // Si USE_PAIRING_CODE=true y todavía no hay sesión registrada,
-  // se pide un código de 8 caracteres en vez de depender del QR.
-  // Si pedirlo falla (número inválido, Baileys sin el método, sin
-  // red), se sigue con el QR normal: nunca tumba el arranque.
-  if (pairingHabilitado(config) && !state.creds.registered) {
-    const telefono = telefonoPairing(config);
-    if (!telefono) {
-      console.log('⚠️ USE_PAIRING_CODE=true pero no hay número válido (PAIRING_PHONE u OWNER_NUMBER). Uso QR.');
-    } else if (typeof sock.requestPairingCode !== 'function') {
-      console.log('⚠️ Esta versión de Baileys no tiene código de emparejamiento. Uso QR.');
-    } else {
-      try {
-        const codigo = await pedirCodigo(sock, telefono);
-        const telLog = `${telefono.slice(0, 4)}****${telefono.slice(-2)}`;
-        console.log(`\n🔢 Código de emparejamiento para ${telLog}: ${codigo}`);
-        console.log('   WhatsApp > Dispositivos vinculados > Vincular un dispositivo > Vincular con número de teléfono');
-        console.log('   Escribe ese código ahí. La sesión queda guardada en auth_info/ y ya no lo pide de nuevo.\n');
-      } catch (err) {
-        console.error('⚠️ No pude pedir el código de emparejamiento:', err.message, '— sigo con QR.');
-      }
-    }
-  }
+  // El código se pide UNA vez por socket, cuando llega el primer
+  // evento `qr` (el servidor ya aceptó la conexión). Pedirlo justo
+  // después de makeWASocket falla con "Connection Closed" porque el
+  // websocket todavía no abre.
+  let codigoPedido = false;
+  const usarPairing = pairingHabilitado(config) && !state.creds.registered;
 
   sock.ev.on('connection.update', (update) => {
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
-      console.log('📱 Escanea este QR con WhatsApp > Dispositivos vinculados:');
-      qrcode.generate(qr, { small: true });
+      if (usarPairing && !codigoPedido) {
+        codigoPedido = true;
+        const telefono = telefonoPairing(config);
+        if (!telefono) {
+          console.log('⚠️ USE_PAIRING_CODE=true pero no hay número válido (PAIRING_PHONE u OWNER_NUMBER). Uso QR.');
+        } else {
+          pedirCodigo(sock, telefono).then((codigo) => {
+            const telLog = `${telefono.slice(0, 4)}****${telefono.slice(-2)}`;
+            console.log(`\n🔢 Código de emparejamiento para ${telLog}: ${codigo}`);
+            console.log('   WhatsApp > Dispositivos vinculados > Vincular un dispositivo > Vincular con número de teléfono');
+            console.log('   Tienes ~1 minuto. NO cierres el bot hasta que diga "Conectado".\n');
+          }).catch((err) => {
+            console.error('⚠️ No pude pedir el código:', err.message, '— uso QR.');
+            qrcode.generate(qr, { small: true });
+          });
+        }
+      } else if (!usarPairing) {
+        console.log('📱 Escanea este QR con WhatsApp > Dispositivos vinculados:');
+        qrcode.generate(qr, { small: true });
+      }
+      // Con pairing activo, los QR siguientes se ignoran a propósito.
     }
 
     if (connection === 'open') {
