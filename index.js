@@ -22,6 +22,7 @@ const {
 } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const qrcode = require('qrcode-terminal');
+const fs = require('node:fs');
 
 const config = require('./config');
 const { revisarMensaje, extraerTexto, delayHumano } = require('./src/antispam');
@@ -201,8 +202,7 @@ async function conectar() {
 
     for (const msg of messages) {
       try {
-        // Ignorar mensajes propios y de estado / broadcast.
-        if (msg.key.fromMe) continue;
+        // Ignorar mensajes de estado / broadcast.
         if (msg.key.remoteJid === 'status@broadcast') continue;
         if (!msg.message) continue;
 
@@ -222,6 +222,14 @@ async function conectar() {
         // Texto una sola vez (antes se extraía dos veces por mensaje).
         const textoCrudo = extraerTexto(msg);
         const esComando = textoCrudo.startsWith(config.PREFIX);
+
+        // Mensajes propios: el bot corre en el número del dueño,
+        // así que los comandos del dueño llegan como fromMe y antes
+        // se ignoraban todos. Ahora pasan solo si son del dueño Y
+        // son comandos: las respuestas del propio bot también son
+        // fromMe, pero no traen prefijo, así que no se contestan
+        // a sí mismas ni le farmean XP al dueño.
+        if (msg.key.fromMe && (!esDueno || !esComando)) continue;
 
         // ¿Hace falta saber quién es admin? Solo si es un comando,
         // si el antilink está activo en este grupo, o si el modo
@@ -310,12 +318,29 @@ async function conectar() {
 
         const textoRespuesta = typeof respuesta === 'string' ? respuesta : respuesta.text;
         const menciones = typeof respuesta === 'string' ? undefined : respuesta.mentions;
+        const imagen = typeof respuesta === 'object' && respuesta.image ? respuesta.image : null;
         const textoFinal = extras.length ? `${textoRespuesta}\n\n${extras.join('\n')}` : textoRespuesta;
-        await sock.sendMessage(
-          jid,
-          menciones ? { text: textoFinal, mentions: menciones } : { text: textoFinal },
-          { quoted: msg },
-        );
+        // Si la respuesta trae imagen (el menú), se manda la foto
+        // con el texto de caption. Si la foto no existe, cae a texto.
+        let fotoEnviada = false;
+        if (imagen) {
+          try {
+            const buf = fs.readFileSync(imagen);
+            await sock.sendMessage(
+              jid,
+              { image: buf, caption: textoFinal, ...(menciones ? { mentions: menciones } : {}) },
+              { quoted: msg },
+            );
+            fotoEnviada = true;
+          } catch { /* sin foto, se manda solo el texto */ }
+        }
+        if (!fotoEnviada) {
+          await sock.sendMessage(
+            jid,
+            menciones ? { text: textoFinal, mentions: menciones } : { text: textoFinal },
+            { quoted: msg },
+          );
+        }
         if (config.SHOW_TYPING) {
           await sock.sendPresenceUpdate('paused', jid);
         }

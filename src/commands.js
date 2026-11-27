@@ -9,6 +9,7 @@
 //   null              -> no era un comando
 //   string            -> texto de respuesta
 //   { text, mentions } -> respuesta con menciones (@)
+//   { image, text }    -> foto con caption (el menú)
 // ============================================
 
 const config = require('../config');
@@ -75,9 +76,13 @@ function menuTexto() {
     '🤖 *Bot*',
     `${PREFIX}ping — pong, para probar que ando vivo`,
     `${PREFIX}help / ${PREFIX}menu — este menú`,
+    `${PREFIX}canal — link del canal de WhatsApp`,
     `${PREFIX}info — info del bot y del antispam`,
     `${PREFIX}status — estado del bot`,
     `${PREFIX}antispam — estado del antispam (solo dueño)`,
+    '',
+    `📢 *Canal: ${config.CHANNEL_NAME}*`,
+    config.CHANNEL_URL,
     '',
     'Si mandas en ráfaga, repites lo mismo o reenvías de todo,',
     'el antispam te va a mutear tantito. Es por tu bien, we.',
@@ -173,7 +178,12 @@ async function procesarComando(texto, ctx = {}) {
     case 'help':
     case 'menu':
     case 'ayuda':
-      return menuTexto();
+      // El menú se manda con la foto del logo (index.js la lee
+      // de config.MENU_IMAGE). Si la foto no existe, cae a texto.
+      return { image: config.MENU_IMAGE, text: menuTexto() };
+
+    case 'canal':
+      return `📢 *Canal: ${config.CHANNEL_NAME}*\n${config.CHANNEL_URL}`;
 
     case 'info':
       return infoTexto();

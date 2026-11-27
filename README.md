@@ -126,7 +126,7 @@ npm run check
 
 ## Cómo funciona el antispam
 
-> ⚠️ **Versión de prueba:** el antispam viene **apagado** (`ANTISPAM_ENABLED=false`). Para prenderlo, pon `ANTISPAM_ENABLED=true` en tu `.env`. Sin antispam sube el riesgo de ban, así que es solo para calar el bot.
+> El antispam está prendido por default. Para apagarlo (solo para test), pon `ANTISPAM_ENABLED=false` en tu `.env`. Los admins del grupo también pasan por el antispam, igual que todos; solo el dueño y la whitelist están libres.
 
 La idea es simple: **WhatsApp banea por patrones, no por un mensaje**. El bot revisa cada mensaje *antes* de responder:
 

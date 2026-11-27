@@ -91,8 +91,8 @@ describe('antispam', () => {
 });
 
 describe('interruptor ANTISPAM_ENABLED', () => {
-  // En proceso hijo con las variables limpias: el default de esta
-  // versión de prueba es apagado; con ANTISPAM_ENABLED=true prende.
+  // En proceso hijo con las variables limpias: el default es
+  // prendido; con ANTISPAM_ENABLED=false se apaga (solo para test).
   const { execFileSync } = require('node:child_process');
   const path = require('node:path');
 
@@ -108,11 +108,35 @@ describe('interruptor ANTISPAM_ENABLED', () => {
     return out.trim();
   }
 
-  it('viene apagado por default (versión de prueba)', () => {
-    assert.equal(leerFlag({}), 'false');
+  it('viene prendido por default', () => {
+    assert.equal(leerFlag({}), 'true');
   });
 
-  it('prende con ANTISPAM_ENABLED=true', () => {
-    assert.equal(leerFlag({ ANTISPAM_ENABLED: 'true' }), 'true');
+  it('se apaga con ANTISPAM_ENABLED=false', () => {
+    assert.equal(leerFlag({ ANTISPAM_ENABLED: 'false' }), 'false');
+  });
+});
+
+describe('antispam en admins de grupo', () => {
+  // Los admins pasan por el antispam igual que todos: solo el
+  // dueño y la whitelist están libres. En grupo el límite es
+  // más estricto (x0.7): 8/min -> 5/min, así que al 6to mensaje
+  // en un minuto el admin queda muteado.
+  it('un admin en ráfaga queda muteado, no tiene bypass', () => {
+    const admin = '5212222222222';
+    let ultimo;
+    for (let i = 0; i < 6; i++) {
+      ultimo = antispam.revisarMensaje(mensaje(admin, `mensaje ${i}`), { isGroup: true, isAdmin: true });
+    }
+    assert.equal(ultimo.allowed, false);
+    assert.equal(ultimo.reason, 'rate-limit-min');
+  });
+
+  it('el dueño en ráfaga sigue libre aunque sea admin', () => {
+    let ultimo;
+    for (let i = 0; i < 10; i++) {
+      ultimo = antispam.revisarMensaje(mensaje(config.OWNER_NUMBER, `mensaje ${i}`), { isGroup: true, isAdmin: true });
+    }
+    assert.equal(ultimo.allowed, true);
   });
 });

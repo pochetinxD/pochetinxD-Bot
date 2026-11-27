@@ -23,13 +23,20 @@ module.exports = {
   PREFIX: process.env.PREFIX || '!',
   BOT_NAME: process.env.BOT_NAME || 'Musulmán 🗣️🔥',
 
+  // ---- Canal de WhatsApp y foto del menú ----
+  // El canal se anuncia en el !menu y con el comando !canal.
+  CHANNEL_NAME: process.env.CHANNEL_NAME || '𝕃𝕠𝕤 ℙ𝕒𝕡𝕦𝕤',
+  CHANNEL_URL: (process.env.CHANNEL_URL || 'https://whatsapp.com/channel/0029VbC1EI1Chq6HzbDros3l').trim(),
+  // Foto que se manda con el menú (ruta relativa a la raíz del bot).
+  // Está en la raíz del repo como menu.jpg porque el push por
+  // snapshot solo acepta archivos de texto (UTF-8).
+  MENU_IMAGE: process.env.MENU_IMAGE || './menu.jpg',
+
   // ---- Antispam: interruptor general ----
-  // VERSIÓN DE PRUEBA: el antispam viene APAGADO. Ningún mensaje
-  // se revisa ni se bloquea, para calar el bot sin que nada lo
-  // frene. Para prenderlo, pon ANTISPAM_ENABLED=true en tu .env.
-  // Ojo: sin antispam sube el riesgo de ban. No reenvíes de todo
-  // ni spamees comandos, y préndelo de nuevo cuando termines el test.
-  ANTISPAM_ENABLED: process.env.ANTISPAM_ENABLED === 'true',
+  // El antispam está PRENDIDO por default. La versión de prueba
+  // 1.0.2 lo traía apagado; ya terminó el test. Para apagarlo,
+  // pon ANTISPAM_ENABLED=false en tu .env.
+  ANTISPAM_ENABLED: process.env.ANTISPAM_ENABLED !== 'false',
 
   // ---- Antispam: rate limiting por usuario ----
   // Máx. mensajes por minuto antes de advertir / mutear.

@@ -12,11 +12,20 @@ describe('comandos (nombres y respuestas básicas)', () => {
     assert.equal(await procesarComando('!ping', {}), 'pong 🏓');
   });
 
-  it('!menu lista los comandos de grupo, economía y gacha', async () => {
+  it('!menu lista los comandos de grupo, economía y gacha, con foto y canal', async () => {
     const menu = await procesarComando('!menu', {});
-    for (const cmd of ['!kick', '!balance', '!rollwaifu', '!profile', '!tagall', '!antispam']) {
-      assert.ok(menu.includes(cmd), `el menú debería incluir ${cmd}`);
+    assert.equal(menu.image, config.MENU_IMAGE, 'el menú debe traer la foto del logo');
+    const texto = menu.text;
+    for (const cmd of ['!kick', '!balance', '!rollwaifu', '!profile', '!tagall', '!antispam', '!canal']) {
+      assert.ok(texto.includes(cmd), `el menú debería incluir ${cmd}`);
     }
+    assert.ok(texto.includes(config.CHANNEL_URL), 'el menú debe traer el link del canal');
+  });
+
+  it('!canal devuelve el link del canal', async () => {
+    const r = await procesarComando('!canal', {});
+    assert.ok(r.includes(config.CHANNEL_URL), 'debería traer el link del canal');
+    assert.ok(r.includes(config.CHANNEL_NAME), 'debería traer el nombre del canal');
   });
 
   it('!info no muestra el número completo del dueño', async () => {
