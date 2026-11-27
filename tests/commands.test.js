@@ -28,6 +28,16 @@ describe('comandos (nombres y respuestas básicas)', () => {
     assert.ok(r.includes(config.CHANNEL_NAME), 'debería traer el nombre del canal');
   });
 
+  it('!dl sin link pide el link', async () => {
+    const r = await procesarComando('!dl', {});
+    assert.ok(r.includes('Pásame el link'), 'debería pedir el link');
+  });
+
+  it('!dl con link de otra página lo rechaza sin descargar', async () => {
+    const r = await procesarComando('!dl https://example.com/video.mp4', {});
+    assert.ok(r.includes('no es de TikTok, YouTube, Instagram o Facebook'), 'debería rechazar la plataforma');
+  });
+
   it('!info no muestra el número completo del dueño', async () => {
     const info = await procesarComando('!info', {});
     assert.ok(!info.includes(config.OWNER_NUMBER), 'el número del dueño no debe salir completo');

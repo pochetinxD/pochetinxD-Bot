@@ -25,5 +25,8 @@ node_modules/
 *.log
 .DS_Store
 
+# Respaldos locales de archivos (antes-de-claude, etc.): nunca se suben
+*.bak
+
 # Cobertura de pruebas
 coverage/

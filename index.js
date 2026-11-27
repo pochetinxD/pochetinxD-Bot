@@ -24,6 +24,7 @@ const pino = require('pino');
 const qrcode = require('qrcode-terminal');
 const fs = require('node:fs');
 const path = require('node:path');
+const http = require('node:http');
 
 const config = require('./config');
 const { revisarMensaje, extraerTexto, delayHumano } = require('./src/antispam');
@@ -34,6 +35,7 @@ const afkMod = require('./src/afk');
 const { esAntilinkActivo, tieneLink } = require('./src/group');
 const { obtenerMetaGrupo, mismaIdentidad, buscarParticipante } = require('./src/groupmeta');
 const { flushAll } = require('./src/store');
+const { borrarDescarga } = require('./src/descargas');
 const { pairingHabilitado, telefonoPairing, pedirCodigo } = require('./src/pairing');
 
 const logger = pino({ level: process.env.LOG_LEVEL || 'silent' }); // LOG_LEVEL=warn en .env para diagnosticar
@@ -330,10 +332,12 @@ async function conectar() {
         const textoRespuesta = typeof respuesta === 'string' ? respuesta : respuesta.text;
         const menciones = typeof respuesta === 'string' ? undefined : respuesta.mentions;
         const imagen = typeof respuesta === 'object' && respuesta.image ? respuesta.image : null;
+        const video = typeof respuesta === 'object' && respuesta.video ? respuesta.video : null;
+        const documento = typeof respuesta === 'object' && respuesta.document ? respuesta.document : null;
         const textoFinal = extras.length ? `${textoRespuesta}\n\n${extras.join('\n')}` : textoRespuesta;
         // Si la respuesta trae imagen (el menú), se manda la foto
         // con el texto de caption. Si la foto no existe, cae a texto.
-        let fotoEnviada = false;
+        let archivoEnviado = false;
         if (imagen) {
           try {
             const buf = leerImagen(imagen);
@@ -342,10 +346,38 @@ async function conectar() {
               { image: buf, caption: textoFinal, ...(menciones ? { mentions: menciones } : {}) },
               { quoted: msg },
             );
-            fotoEnviada = true;
+            archivoEnviado = true;
           } catch { /* sin foto, se manda solo el texto */ }
         }
-        if (!fotoEnviada) {
+        // Video o documento (descargas con !dl): se lee el archivo
+        // temporal, se manda y SE BORRA, para no llenar el disco.
+        // Como video solo entran ~16 MB; más grande va como documento.
+        const archivoVideo = video || documento;
+        if (archivoVideo) {
+          try {
+            const buf = fs.readFileSync(archivoVideo);
+            const nombre = path.basename(archivoVideo);
+            if (video) {
+              await sock.sendMessage(
+                jid,
+                { video: buf, caption: textoFinal, fileName: nombre, ...(menciones ? { mentions: menciones } : {}) },
+                { quoted: msg },
+              );
+            } else {
+              await sock.sendMessage(
+                jid,
+                { document: buf, caption: textoFinal, fileName: nombre, mimetype: 'video/mp4', ...(menciones ? { mentions: menciones } : {}) },
+                { quoted: msg },
+              );
+            }
+            archivoEnviado = true;
+          } catch (err) {
+            console.error('[ERROR] mandando video descargado:', err.message);
+          } finally {
+            borrarDescarga(archivoVideo);
+          }
+        }
+        if (!archivoEnviado) {
           await sock.sendMessage(
             jid,
             menciones ? { text: textoFinal, mentions: menciones } : { text: textoFinal },
@@ -372,6 +404,20 @@ function apagarLimpio(senal) {
   try { if (sockActual && typeof sockActual.end === 'function') sockActual.end(); } catch { /* mejor esfuerzo */ }
   console.log(`\n👋 Apagando (${senal}). Datos guardados.`);
   process.exit(0);
+}
+
+// Health check opcional (para UptimeRobot / monitoreo).
+// Si HEALTH_PORT está puesto, levanta un servidorcito que
+// responde "ok" en cualquier ruta. No se levanta nada si no
+// se configura el puerto.
+if (config.HEALTH_PORT) {
+  const servidorHealth = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('ok');
+  });
+  servidorHealth.listen(config.HEALTH_PORT, () => {
+    console.log(`   Health check: http://localhost:${config.HEALTH_PORT}/`);
+  });
 }
 
 // Arranque: solo cuando se corre con `node index.js`.

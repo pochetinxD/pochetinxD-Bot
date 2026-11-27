@@ -23,7 +23,31 @@ module.exports = {
   PREFIX: process.env.PREFIX || '!',
   BOT_NAME: process.env.BOT_NAME || 'Musulmán 🗣️🔥',
 
-  // ---- Canal de WhatsApp y foto del menú ----
+  // ---- Descargas de video (yt-dlp) ----
+  // !dl baja videos de TikTok/YouTube/Instagram/Facebook.
+  // yt-dlp es un binario aparte (ver docs/ORACLE.md).
+  DESCARGAS_ENABLED: process.env.DESCARGAS_ENABLED !== 'false',
+  // Peso máximo por video. Más grande se rechaza (el disco y
+  // el ancho de banda son gratis, pero no infinitos).
+  DESCARGA_MAX_MB: Number(process.env.DESCARGA_MAX_MB || 100),
+  // Tiempo máximo por descarga (3 min). Si tarda más, se cancela.
+  DESCARGA_TIMEOUT_MS: Number(process.env.DESCARGA_TIMEOUT_MS || 180000),
+  // Descargas a la vez (para no saturar RAM/disco).
+  DESCARGA_MAX_SIMULTANEAS: Number(process.env.DESCARGA_MAX_SIMULTANEAS || 2),
+  // Cookies opcionales (formato Netscape) para TikTok/IG/FB
+  // que piden login. Si el archivo no existe, se intenta sin cookies.
+  COOKIES_FILE: process.env.COOKIES_FILE || './cookies.txt',
+  YT_DLP_BIN: process.env.YT_DLP_BIN || 'yt-dlp',
+  // WhatsApp solo acepta ~16 MB como video directo; si pesa
+  // más, se manda como documento.
+  VIDEO_MAX_MB_COMO_VIDEO: 16,
+
+  // ---- Health check (para UptimeRobot / monitoreo) ----
+  // Si HEALTH_PORT está puesto (ej. 3000), el bot levanta un
+  // servidorcito que responde "ok". Sirve para que UptimeRobot
+  // te avise si el bot se muere y para que Oracle vea tráfico.
+  // Si no se pone, no se levanta nada.
+  HEALTH_PORT: process.env.HEALTH_PORT ? Number(process.env.HEALTH_PORT) : 0,
   // El canal se anuncia en el !menu y con el comando !canal.
   CHANNEL_NAME: process.env.CHANNEL_NAME || '𝕃𝕠𝕤 ℙ𝕒𝕡𝕦𝕤',
   CHANNEL_URL: (process.env.CHANNEL_URL || 'https://whatsapp.com/channel/0029VbC1EI1Chq6HzbDros3l').trim(),

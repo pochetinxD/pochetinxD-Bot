@@ -10,10 +10,13 @@
 //   string            -> texto de respuesta
 //   { text, mentions } -> respuesta con menciones (@)
 //   { image, text }    -> foto con caption (el menú)
+//   { video, text }    -> video con caption (descargas, <=16 MB)
+//   { document, text } -> archivo con caption (descargas, >16 MB)
 // ============================================
 
 const config = require('../config');
 const { getStats, resetStats } = require('./antispam');
+const { detectarPlataforma, descargarVideo } = require('./descargas');
 const economia = require('./economy');
 const gacha = require('./gacha');
 const nivel = require('./level');
@@ -75,6 +78,7 @@ function menuTexto() {
     '',
     '🤖 *Bot*',
     `${PREFIX}ping — pong, para probar que ando vivo`,
+    `${PREFIX}dl <link> — bajar video de TikTok/YouTube/IG/FB`,
     `${PREFIX}help / ${PREFIX}menu — este menú`,
     `${PREFIX}canal — link del canal de WhatsApp`,
     `${PREFIX}info — info del bot y del antispam`,
@@ -184,6 +188,33 @@ async function procesarComando(texto, ctx = {}) {
 
     case 'canal':
       return `📢 *Canal: ${config.CHANNEL_NAME}*\n${config.CHANNEL_URL}`;
+
+    case 'dl':
+    case 'descargar': {
+      if (!config.DESCARGAS_ENABLED) return 'Las descargas están apagadas por el momento, we.';
+      const url = args[0];
+      if (!url) return `Pásame el link, we. Ejemplo: ${PREFIX}dl https://www.tiktok.com/@alguien/video/123`;
+      const plataforma = detectarPlataforma(url);
+      if (!plataforma) return 'Ese link no es de TikTok, YouTube, Instagram o Facebook, we.';
+      // Avisar que ya se está bajando: puede tardar hasta ~1 min
+      // y el usuario si no ve nada piensa que el bot se murió.
+      if (ctx.sock && ctx.jid) {
+        try { await ctx.sock.sendMessage(ctx.jid, { text: `⏳ Bajando el video de ${plataforma.nombre}...` }, { quoted: ctx.msg }); } catch { /* mejor esfuerzo */ }
+      }
+      let video;
+      try {
+        video = await descargarVideo(url);
+      } catch (err) {
+        return `No se pudo bajar, we. ${err.message}`;
+      }
+      const texto = `📹 Video de ${plataforma.nombre} (${video.tamanoMB.toFixed(1)} MB)`;
+      // Como video directo solo entran ~16 MB; más grande va
+      // como documento (index.js lo manda y borra el temporal).
+      if (video.tamanoMB <= (config.VIDEO_MAX_MB_COMO_VIDEO || 16)) {
+        return { video: video.ruta, text: texto };
+      }
+      return { document: video.ruta, text: `${texto}\nPesa más de 16 MB, así que va como archivo.` };
+    }
 
     case 'info':
       return infoTexto();

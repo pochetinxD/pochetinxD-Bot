@@ -83,6 +83,21 @@ Cada mensaje que pasa el antispam da 5–15 XP. Al subir de nivel el bot te avis
 | `!status` | Estado: uptime y stats del antispam |
 | `!antispam` | Estado del antispam (solo dueño) |
 | `!antispam reset` | Limpia las stats (solo dueño) |
+| `!dl <link>` | Baja el video de TikTok, YouTube, Instagram o Facebook y lo manda al chat |
+| `!canal` | Link del canal de WhatsApp |
+
+### 📹 Descargar videos (`!dl`)
+
+`!dl https://www.tiktok.com/@alguien/video/123`
+
+- Requiere **yt-dlp** instalado en el servidor (el `scripts/instalar-oracle.sh` ya lo instala; en Windows baja el `yt-dlp.exe` de [github.com/yt-dlp/yt-dlp](https://github.com/yt-dlp/yt-dlp) y ponlo en el PATH).
+- Máximo 720p y 100 MB por video (`DESCARGA_MAX_MB` en el `.env`). Si pesa más de 16 MB, se manda como documento en vez de video directo.
+- El archivo se borra después de mandarlo, para no llenar el disco.
+- Máximo 2 descargas a la vez. Ojo: TikTok, Instagram y Facebook a veces bloquean desde IPs de centro de datos o piden login; para eso se puede poner un archivo de cookies (formato Netscape) en `COOKIES_FILE`. YouTube normalmente jala sin cookies.
+
+## Host gratis 24/7 (Oracle Cloud)
+
+Si no puedes tener tu PC prendida todo el día, el bot puede vivir en un servidor gratis de Oracle (Always Free, $0 al mes). Guía paso a paso en **[docs/ORACLE.md](docs/ORACLE.md)**.
 
 ## Cómo instalar y correr
 
